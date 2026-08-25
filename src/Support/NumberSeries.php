@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices\Support;
 
+use Goldnead\Invoices\Exceptions\SeriesWouldCollide;
 use Goldnead\Invoices\Models\InvoiceCounter;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
@@ -115,6 +116,37 @@ class NumberSeries
 
         $perBrand = (array) config('invoices.number.prefix_per_brand', []);
 
-        return (string) ($perBrand[$brandId] ?? $default);
+        if (isset($perBrand[$brandId])) {
+            return (string) $perBrand[$brandId];
+        }
+
+        // Keine eigene Vorsilbe, und die Installation faehrt mehrere Marken.
+        //
+        // Der Zaehler ist je Marke — das ist die Zusage. Die Nummer ist global
+        // eindeutig — das macht sie zum Beleg. Beides zusammen mit derselben
+        // Vorsilbe heisst: zwei Marken geben RE2026-08-001 aus, die erste
+        // gewinnt, und die zweite ist eine Ausnahme auf einer bezahlten
+        // Bestellung. Eine Vorsilbe aus dem Handle abzuleiten waere geraten und
+        // wuerde die Nummerierung einer Installation still aendern, sobald sie
+        // eine Marke dazunimmt.
+        if ($this->multiBrand()) {
+            throw new SeriesWouldCollide($brandId);
+        }
+
+        return $default;
+    }
+
+    /** Whether this installation runs more than one brand at all. */
+    protected function multiBrand(): bool
+    {
+        if (! class_exists('\Goldnead\BrandContext\Facades\BrandContext')) {
+            return false;
+        }
+
+        try {
+            return (bool) app('brand-context')->multiBrandEnabled();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

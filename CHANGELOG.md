@@ -22,6 +22,13 @@ pinned by a test in `tests/Feature/TheCriticsFindingsTest.php`:
 - **The brand came from the request.** `currentId()` falls back to the default brand, and nothing is
   current in a webhook — so a second brand's invoice landed silently in the first brand's series.
 
+One more found while wiring it into a demo with five brands, and it is the same class of mistake as
+the six above: **two brands shared a prefix and handed out the same number.** The counter is per
+brand, the number is globally unique, and `RE` for both means the second brand's invoice dies on the
+index — on an order somebody already paid for. A multi-brand installation now has to give each brand
+its own prefix, and says so instead of colliding. Deriving one from the brand handle would have been
+a guess that silently renumbers an installation the day it adds a brand.
+
 Two mandatory details are checked before writing, because an invoice cannot be corrected: the
 sender's own details always, and above €250 the recipient's name and address (§ 14 UStG). Below that
 line § 33 UStDV allows a Kleinbetragsrechnung, which is the ordinary case for a digital product.
