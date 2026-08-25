@@ -1,0 +1,63 @@
+{
+    "name": "goldnead/statamic-invoices",
+    "description": "Invoices for statamic-payments: a gapless number per brand, VAT by the buyer's country, reverse charge, and a document that never changes.",
+    "type": "statamic-addon",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Adrian Goldner",
+            "email": "info@adriangoldner.com"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "goldnead/statamic-payments": "^1.9",
+        "laravel/framework": "^12.40|^13.0",
+        "statamic/cms": "^6.0"
+    },
+    "require-dev": {
+        "goldnead/statamic-brand-context": "^1.11",
+        "orchestra/testbench": "^10.0|^11.0",
+        "laravel/pint": "^1.18",
+        "pestphp/pest": "^3.0|^4.0"
+    },
+    "suggest": {
+        "goldnead/statamic-brand-context": "One number series per brand instead of one for the whole installation."
+    },
+    "autoload": {
+        "psr-4": {
+            "Goldnead\\Invoices\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Goldnead\\Invoices\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "statamic": {
+            "name": "Invoices",
+            "slug": "invoices",
+            "description": "A gapless invoice number, VAT by country, and a document that never changes.",
+            "url": "https://github.com/goldnead/statamic-invoices",
+            "developer": "Adrian Goldner",
+            "developer-url": "https://gldnr.studio"
+        },
+        "laravel": {
+            "providers": [
+                "Goldnead\\Invoices\\ServiceProvider"
+            ],
+            "aliases": {
+                "Invoices": "Goldnead\\Invoices\\Facades\\Invoices"
+            }
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "pixelfear/composer-dist-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
