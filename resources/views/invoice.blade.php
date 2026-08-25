@@ -42,8 +42,7 @@
 
 <div class="kopf">
     <div>
-        <div class="empfaenger">{{ $invoice->buyer_name }}@if($invoice->buyer_address)
-{{ $invoice->buyer_address }}@endif</div>
+        <div class="empfaenger">{{ $empfaenger }}</div>
     </div>
     <div class="absender"><strong>{{ $seller['name'] ?? '' }}</strong>{{ $seller['address'] ?? '' }}
 @if(!empty($seller['vat_id']))USt-IdNr. {{ $seller['vat_id'] }}@endif</div>
@@ -88,11 +87,34 @@
     </tbody>
 </table>
 
+{{--
+    § 14 Abs. 4 Nr. 8 UStG verlangt das Entgelt **nach Steuersaetzen
+    aufgeschluesselt**, samt dem darauf entfallenden Steuerbetrag. Eine einzige
+    Nettozeile ueber einer Rechnung mit 19 % und 7 % erfuellt das nicht — und
+    genau der Fall ist hier der Normalfall, sobald Noten neben einem Kurs
+    stehen.
+--}}
 <table class="summen">
-    <tr><td>Nettobetrag</td><td class="zahl">{{ $euro($invoice->net_cent) }}</td></tr>
-    @if($invoice->tax_cent > 0)
-        <tr><td>Umsatzsteuer</td><td class="zahl">{{ $euro($invoice->tax_cent) }}</td></tr>
+    @foreach($nachSatz as $satz)
+        <tr>
+            <td>Entgelt zu {{ $satz['label'] }}</td>
+            <td class="zahl">{{ $euro($satz['net']) }}</td>
+        </tr>
+        @if($satz['tax'] > 0)
+            <tr>
+                <td>Umsatzsteuer {{ $satz['label'] }}</td>
+                <td class="zahl">{{ $euro($satz['tax']) }}</td>
+            </tr>
+        @endif
+    @endforeach
+
+    @if(count($nachSatz) > 1)
+        <tr><td>Nettobetrag gesamt</td><td class="zahl">{{ $euro($invoice->net_cent) }}</td></tr>
+        @if($invoice->tax_cent > 0)
+            <tr><td>Umsatzsteuer gesamt</td><td class="zahl">{{ $euro($invoice->tax_cent) }}</td></tr>
+        @endif
     @endif
+
     <tr class="gesamt"><td>Gesamtbetrag</td><td class="zahl">{{ $euro($invoice->gross_cent) }}</td></tr>
 </table>
 

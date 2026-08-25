@@ -16,7 +16,7 @@ use Goldnead\StatamicPayments\Models\Payment;
  * the invoice waits for somebody to say which rule applies. `invoices:pending`
  * lists what is waiting.
  */
-class RateUndetermined extends \RuntimeException
+class RateUndetermined extends InvoiceNotWritten
 {
     /** @param  list<array{product: string|null, code: string|null, reason: string}>  $lines */
     public function __construct(

@@ -2,7 +2,32 @@
 
 ## 1.0.0 — 2026-08-25
 
-The first release. An invoice for every payment: a number that is unique and continuous, VAT decided
+The first release. A review before it went out proved six things wrong; each of them is fixed and
+pinned by a test in `tests/Feature/TheCriticsFindingsTest.php`:
+
+- **One payment could get two invoices.** Demonstrated on MySQL: five concurrent calls wrote
+  `RE2026-08-001` and `-002` for the same €244. The duplicate check sat before the transaction, and
+  the unique index it relied on did not exist — `constrained()` creates a foreign key, not a unique
+  one. There is now a real `unique(payment_id, kind)`, which also allows exactly one credit note.
+- **Under concurrency most callers lost their invoice.** Three of five MySQL processes hit a
+  deadlock, and the transaction ran with a single attempt. Three now.
+- **Only the invoice head was immutable.** `InvoiceItem` had no guard at all: a line could be added,
+  changed or deleted under a head that kept its totals, and the template printed both. That is a
+  falsified invoice that reads as correct.
+- **The printed line did not add up at quantity > 1.** 3 × €10 gross printed "3 × €8.40" above a net
+  of €25.21. Rounding now goes the other way and the remainder lands in the discount, where it is a
+  stated number.
+- **`digital` was guessed.** `?? true` made a vinyl record a digital service and printed the wrong
+  mandatory note. It refuses now, like a missing country.
+- **The brand came from the request.** `currentId()` falls back to the default brand, and nothing is
+  current in a webhook — so a second brand's invoice landed silently in the first brand's series.
+
+Two mandatory details are checked before writing, because an invoice cannot be corrected: the
+sender's own details always, and above €250 the recipient's name and address (§ 14 UStG). Below that
+line § 33 UStDV allows a Kleinbetragsrechnung, which is the ordinary case for a digital product.
+
+The totals are broken down **per tax rate**, as § 14 Abs. 4 Nr. 8 requires — a single net line above
+an invoice carrying 19 % and 7 % does not satisfy it, and that is the normal case here. An invoice for every payment: a number that is unique and continuous, VAT decided
 by the buyer's country, and a document that never changes.
 
 ### The number

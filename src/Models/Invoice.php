@@ -28,6 +28,12 @@ use Illuminate\Support\Carbon;
  */
 class Invoice extends Model
 {
+    /** A document that charges. */
+    public const KIND_INVOICE = 'invoice';
+
+    /** The one that reverses it. */
+    public const KIND_CREDIT_NOTE = 'credit_note';
+
     protected $table = 'invoices';
 
     protected $guarded = [];

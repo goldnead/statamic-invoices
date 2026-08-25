@@ -4,8 +4,12 @@ namespace Goldnead\Invoices;
 
 use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
+use Goldnead\Invoices\Exceptions\BrandUnknown;
+use Goldnead\Invoices\Exceptions\DetailsMissing;
+use Goldnead\Invoices\Exceptions\ProductIncomplete;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\Models\Invoice;
+use Goldnead\Invoices\Models\InvoiceItem;
 use Goldnead\Invoices\Support\NumberSeries;
 use Goldnead\Invoices\Support\TaxRules;
 use Goldnead\StatamicPayments\Models\Payment;
@@ -42,9 +46,11 @@ class InvoiceWriter
             return null;
         }
 
-        if ($vorhanden = Invoice::query()->where('payment_id', $payment->getKey())->first()) {
+        if ($vorhanden = $this->existing($payment, Invoice::KIND_INVOICE)) {
             return $vorhanden;
         }
+
+        $this->assertComplete($payment, $this->seller($this->brandIdFor($payment)));
 
         $zeilen = $this->lines($payment);
 
@@ -66,6 +72,10 @@ class InvoiceWriter
             ], $unbestimmt));
         }
 
+        // Drei Versuche. Unter Nebenlaeufigkeit sperrt die Zaehlerzeile, und
+        // eine gesperrte Zeile ist auf MySQL ein Deadlock und auf SQLite ein
+        // "database is locked" — beides ist ein Grund, es gleich noch einmal zu
+        // versuchen, und keiner, eine bezahlte Bestellung ohne Beleg zu lassen.
         $invoice = DB::transaction(function () use ($payment, $zeilen): Invoice {
             $brandId = $this->brandIdFor($payment);
             $issuedAt = $payment->paid_at ?? Carbon::now();
@@ -76,6 +86,7 @@ class InvoiceWriter
                 // eine Nummer, die vergeben ist und auf nichts zeigt.
                 'number' => $this->numbers->take($brandId, $issuedAt),
                 'payment_id' => $payment->getKey(),
+                'kind' => Invoice::KIND_INVOICE,
                 'issued_at' => $issuedAt,
                 'currency' => $payment->currency,
                 'buyer_name' => $payment->name,
@@ -91,17 +102,61 @@ class InvoiceWriter
                 'tax_note' => $this->note($zeilen),
             ]);
 
-            foreach ($zeilen as $zeile) {
-                unset($zeile['tax_reason'], $zeile['tax_mechanism'], $zeile['tax_code']);
-                $invoice->items()->create($zeile);
-            }
+            InvoiceItem::whileWriting(function () use ($invoice, $zeilen) {
+                foreach ($zeilen as $zeile) {
+                    unset($zeile['tax_reason'], $zeile['tax_mechanism'], $zeile['tax_code']);
+                    $invoice->items()->create($zeile);
+                }
+            });
 
             return $invoice;
-        });
+        }, 3);
 
         InvoiceIssued::dispatch($invoice->fresh(['items']) ?? $invoice);
 
         return $invoice;
+    }
+
+    /**
+     * The mandatory details, checked before anything is written.
+     *
+     * Only the two this addon can actually know about. It cannot check whether
+     * a description is specific enough or a date is right; it can check that
+     * the sender exists at all and that a large invoice names its recipient.
+     *
+     * The €250 line is § 33 UStDV: below it a Kleinbetragsrechnung needs no
+     * recipient address, which is the ordinary case for a digital product.
+     * Demanding one there would refuse invoices the law is happy with.
+     *
+     * @param  array<string, mixed>  $seller
+     */
+    protected function assertComplete(Payment $payment, array $seller): void
+    {
+        $fehlt = [];
+
+        if (! is_string($seller['name'] ?? null) || trim($seller['name']) === '') {
+            $fehlt[] = 'the sender has no name (invoices.seller.name)';
+        }
+
+        if (! is_string($seller['address'] ?? null) || trim($seller['address']) === '') {
+            $fehlt[] = 'the sender has no address (invoices.seller.address)';
+        }
+
+        $schwelle = (int) config('invoices.small_amount_cent', 25000);
+
+        if ($payment->amount_cent > $schwelle) {
+            if (! is_string($payment->name ?? null) || trim($payment->name) === '') {
+                $fehlt[] = 'the recipient has no name, and above '.($schwelle / 100).' EUR that is mandatory';
+            }
+
+            if (! is_string($payment->meta['address'] ?? null) || trim($payment->meta['address']) === '') {
+                $fehlt[] = 'the recipient has no address, and above '.($schwelle / 100).' EUR § 14 UStG requires one';
+            }
+        }
+
+        if ($fehlt !== []) {
+            throw new DetailsMissing($payment, $fehlt);
+        }
     }
 
     /**
@@ -125,7 +180,7 @@ class InvoiceWriter
     {
         $original = Invoice::query()
             ->where('payment_id', $payment->getKey())
-            ->whereNull('reverses_invoice_id')
+            ->where('kind', Invoice::KIND_INVOICE)
             ->with('items')
             ->first();
 
@@ -135,7 +190,7 @@ class InvoiceWriter
 
         // Schon storniert: die zweite Zustellung derselben Erstattung darf
         // nicht ein zweites Dokument erzeugen.
-        if (Invoice::query()->where('reverses_invoice_id', $original->getKey())->exists()) {
+        if ($this->existing($payment, Invoice::KIND_CREDIT_NOTE) !== null) {
             return null;
         }
 
@@ -146,6 +201,7 @@ class InvoiceWriter
                 'brand_id' => $original->brand_id,
                 'number' => $this->numbers->take($original->brand_id, $issuedAt),
                 'payment_id' => $original->payment_id,
+                'kind' => Invoice::KIND_CREDIT_NOTE,
                 'reverses_invoice_id' => $original->getKey(),
                 'issued_at' => $issuedAt,
                 'currency' => $original->currency,
@@ -163,15 +219,17 @@ class InvoiceWriter
                 'meta' => ['reverses_number' => $original->number],
             ]);
 
-            foreach ($original->items as $zeile) {
-                $storno->items()->create($zeile->only([
-                    'product', 'name', 'quantity', 'unit_net_cent', 'discount_cent',
-                    'net_cent', 'tax_rate_bp', 'tax_cent', 'gross_cent',
-                ]));
-            }
+            InvoiceItem::whileWriting(function () use ($storno, $original) {
+                foreach ($original->items as $zeile) {
+                    $storno->items()->create($zeile->only([
+                        'product', 'name', 'quantity', 'unit_net_cent', 'discount_cent',
+                        'net_cent', 'tax_rate_bp', 'tax_cent', 'gross_cent',
+                    ]));
+                }
+            });
 
             return $storno;
-        });
+        }, 3);
 
         CreditNoteIssued::dispatch($storno->fresh(['items']) ?? $storno, $original);
 
@@ -229,7 +287,12 @@ class InvoiceWriter
             productHandle: (string) ($handle ?? ''),
             buyerCountry: $payment->country,
             buyerVatId: is_array($payment->meta) ? ($payment->meta['vat_id'] ?? null) : null,
-            isDigital: (bool) ($this->product($handle)['digital'] ?? true),
+            // Nicht `?? true`. Ob eine Leistung digital oder koerperlich ist,
+            // entscheidet ueber Reverse Charge gegen innergemeinschaftliche
+            // Lieferung und ueber "nicht steuerbar" gegen Ausfuhr — vier
+            // verschiedene Pflichthinweise. Fehlt die Angabe, gibt es keine
+            // Antwort, so wie bei einem fehlenden Land.
+            isDigital: $this->isDigital($handle),
         );
 
         $bp = $satz->rateBasisPoints;
@@ -268,19 +331,36 @@ class InvoiceWriter
         $inklusive = $satz->pricesIncludeTax;
 
         // Der Einzelpreis, den die Rechnung zeigt, muss netto sein — sonst
-        // steht in einer Zeile ein Bruttopreis neben einem Nettobetrag und die
-        // Zeile geht nicht auf. Gerechnet aus dem Zeilennetto, damit
-        // Einzel × Menge − Rabatt genau das Netto ergibt, das darunter steht.
+        // steht ein Bruttopreis neben einem Nettobetrag und die Zeile geht
+        // nicht auf.
+        //
+        // Und er muss *aufgehen*: Einzel × Menge − Nachlass hat genau das Netto
+        // darunter zu ergeben. Mit `round()` tut es das bei Menge > 1 nicht —
+        // 3 × 10 € brutto druckte „3 × 8,40 €" über einem Netto von 25,21 €,
+        // und eine Rechnung, deren sichtbare Zeile nicht aufgeht, ist
+        // unbrauchbar, ohne falsch auszusehen. Deshalb wird abgerundet und der
+        // Rest in den Nachlass gelegt: dort ist er eine erklärte Zahl.
         $menge = max(1, $quantity);
         $rabattNetto = $bp > 0 && $inklusive
             ? (int) round($discountCent * 10000 / (10000 + $bp))
             : $discountCent;
 
+        // Aufgerundet, nicht abgerundet, und die Differenz geht in den
+        // Nachlass. Andersherum wuerde der Rest zum Nachlass *addiert* und
+        // damit ein zweites Mal abgezogen — bei 2 x 10 EUR brutto stand dann
+        // 1679 unter einer Zeile, die 1681 ergeben sollte.
+        //
+        // Dass dabei ein Rundungscent im Nachlass landen kann, ist die
+        // ehrlichere Haelfte des Tauschs: der Kaeufer zahlt tatsaechlich
+        // weniger als Einzelpreis x Menge, und genau das steht dann da.
+        $einzelNetto = intdiv($netto + $rabattNetto + $menge - 1, $menge);
+        $rabattNetto = $einzelNetto * $menge - $netto;
+
         return [
             'product' => $handle,
             'name' => $name ?: ($handle ?? '—'),
             'quantity' => $menge,
-            'unit_net_cent' => (int) round(($netto + $rabattNetto) / $menge),
+            'unit_net_cent' => $einzelNetto,
             'discount_cent' => $rabattNetto,
             'net_cent' => $netto,
             'tax_rate_bp' => $bp,
@@ -290,6 +370,40 @@ class InvoiceWriter
             'tax_mechanism' => $satz->mechanism,
             'tax_code' => null,
         ];
+    }
+
+    /**
+     * The invoice or credit note that already exists for a payment.
+     *
+     * Read inside the transaction as well as before it: the check before is a
+     * courtesy that saves a lock, the one inside is what actually holds. Two
+     * webhook deliveries arriving together both read nothing here, and only the
+     * unique index stops them both writing.
+     */
+    protected function existing(Payment $payment, string $kind): ?Invoice
+    {
+        return Invoice::query()
+            ->where('payment_id', $payment->getKey())
+            ->where('kind', $kind)
+            ->first();
+    }
+
+    /**
+     * Is this a digital service or a physical good?
+     *
+     * No default. The answer decides between four different mandatory notes —
+     * reverse charge, intra-community supply, outside scope, export — and
+     * guessing produces a wrong one on an immutable document.
+     */
+    protected function isDigital(?string $handle): bool
+    {
+        $product = $this->product($handle);
+
+        if (! array_key_exists('digital', $product)) {
+            throw new ProductIncomplete($handle, 'digital');
+        }
+
+        return (bool) $product['digital'];
     }
 
     /** @return array<string, mixed> */
@@ -375,16 +489,44 @@ class InvoiceWriter
         return $gewoehnlich;
     }
 
-    protected function brandIdFor(Payment $payment): ?int
+    /**
+     * Which brand's series this invoice belongs to.
+     *
+     * `currentId()` is not usable here. It falls back to the default brand when
+     * nothing is set — and nothing is set in a provider's webhook or in a
+     * console command, which is where invoices are actually written. A second
+     * brand's invoice would land silently in the first brand's series, and it
+     * is immutable a moment later.
+     *
+     * So: only a brand that is genuinely current counts, and a multi-brand
+     * installation without one refuses rather than guesses. The payment itself
+     * carries no brand — `statamic-payments` does not scope by it — which is
+     * why this cannot be answered from the row.
+     */
+    protected function brandIdFor(Payment $payment): int
     {
         if (! class_exists('\Goldnead\BrandContext\Facades\BrandContext')) {
-            return null;
+            return 0;
         }
 
         try {
-            return app('brand-context')->currentId();
+            $manager = app('brand-context');
+
+            if (! $manager->multiBrandEnabled()) {
+                return 0;
+            }
+
+            $id = $manager->currentId();
+
+            if ($id === null) {
+                throw new BrandUnknown($payment);
+            }
+
+            return (int) $id;
+        } catch (BrandUnknown $e) {
+            throw $e;
         } catch (\Throwable) {
-            return null;
+            return 0;
         }
     }
 }

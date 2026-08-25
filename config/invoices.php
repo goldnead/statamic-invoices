@@ -68,6 +68,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Where a Kleinbetragsrechnung ends
+    |--------------------------------------------------------------------------
+    |
+    | Below this gross amount, § 33 UStDV allows an invoice without the
+    | recipient's name and address — which is the ordinary case for a digital
+    | product bought by an address and nothing else. Above it, § 14 UStG wants
+    | both, and this addon refuses to write the document without them rather
+    | than issue something that is not an invoice.
+    |
+    */
+
+    'small_amount_cent' => 25000,
+
+    /*
+    |--------------------------------------------------------------------------
     | VAT
     |--------------------------------------------------------------------------
     |

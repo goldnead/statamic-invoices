@@ -24,7 +24,10 @@ return new class extends Migration
     {
         Schema::create('invoice_counters', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('brand_id')->nullable();
+            // `0` statt NULL fuer "keine Marke". Ein Unique-Index bindet bei
+            // NULL nicht — zwei Zaehlerzeilen fuer dieselbe Reihe gingen also
+            // durch, und zwar auf jeder Installation ohne brand-context.
+            $table->unsignedBigInteger('brand_id')->default(0);
             // The literal prefix this series counts under, period included:
             // "RE2026-08". Storing the resolved string rather than the pattern
             // means a site that changes its format next year does not
@@ -40,10 +43,17 @@ return new class extends Migration
 
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('brand_id')->nullable()->index();
+            $table->unsignedBigInteger('brand_id')->default(0)->index();
 
             $table->string('number')->unique();
             $table->foreignId('payment_id')->nullable()->constrained('payments')->nullOnDelete();
+
+            // Ob dies die Rechnung oder ihr Storno ist. Zusammen mit
+            // `payment_id` der Riegel gegen das zweite Dokument: zwei
+            // Webhook-Zustellungen, die zusammen ankommen, lesen beide nichts
+            // und schreiben beide — ein Blick vor der Transaktion verhindert
+            // das nicht, ein Index in der Datenbank schon.
+            $table->string('kind', 16)->default('invoice');
 
             // A credit note points at the invoice it reverses. An invoice is
             // never edited — a correction is a second document — so this is the
@@ -80,6 +90,9 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['brand_id', 'issued_at']);
+
+            // Eine Rechnung und hoechstens ein Storno je Zahlung.
+            $table->unique(['payment_id', 'kind']);
         });
 
         Schema::create('invoice_items', function (Blueprint $table) {

@@ -39,6 +39,79 @@ class InvoiceItem extends Model
         ];
     }
 
+    /** Whether the writer is in the middle of building an invoice. */
+    private static bool $writing = false;
+
+    /**
+     * Run a callback with line-writing permitted.
+     *
+     * Deliberately explicit and deliberately narrow: this is the only door, it
+     * closes again on the way out, and it closes on an exception too.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    public static function whileWriting(callable $callback)
+    {
+        self::$writing = true;
+
+        try {
+            return $callback();
+        } finally {
+            self::$writing = false;
+        }
+    }
+
+    protected static function booted(): void
+    {
+        // Dieselben Riegel wie am Kopf, und zwar aus demselben Grund.
+        //
+        // Ohne sie war die Rechnung nur dort unveraenderlich, wo jemand
+        // hinschaute: einer bestehenden Rechnung liess sich eine erfundene
+        // Position anhaengen, eine loeschen oder eine auf einen Cent setzen —
+        // der Kopf blieb bei seiner Summe stehen, und die Vorlage druckte
+        // beides nebeneinander. Eine verfaelschte Rechnung, die sich als
+        // korrekt liest, ist schlimmer als eine offensichtlich falsche.
+        static::updating(function () {
+            throw new \RuntimeException(
+                'A line of an invoice cannot be changed. A correction is a credit note plus a new '
+                .'invoice — changing a line here would leave the totals above it untouched.'
+            );
+        });
+
+        static::deleting(function (InvoiceItem $zeile) {
+            // Beim Loeschen der Rechnung selbst kaskadiert die Datenbank, und
+            // das ist kein Weg, den ein Aufrufer nehmen kann: der Kopf wirft
+            // vorher. Was hier verhindert wird, ist das Loeschen einer
+            // einzelnen Zeile unter einem Kopf, der weiterlebt.
+            if ($zeile->invoice()->exists()) {
+                throw new \RuntimeException(
+                    'A line cannot be removed from an invoice. The totals above it would stay as '
+                    .'they are, and the document would read as correct while it is not.'
+                );
+            }
+        });
+
+        static::creating(function () {
+            // Nachtraeglich angehaengte Zeilen sind der andere halbe Weg zur
+            // verfaelschten Rechnung: der Kopf behaelt seine Summe, und die
+            // Vorlage druckt beides nebeneinander.
+            //
+            // Die Erlaubnis ist ausdruecklich statt geraten. Eine Heuristik —
+            // "gehoert der Kopf zu diesem Vorgang?" — laesst sich nicht
+            // zuverlaessig beantworten, sobald die Relation neu aus der
+            // Datenbank kommt, und ein Riegel, der manchmal irrt, ist keiner.
+            if (! self::$writing) {
+                throw new \RuntimeException(
+                    'A line cannot be added to an invoice on its own. Lines are written by '
+                    .'InvoiceWriter, in the same transaction as the invoice they belong to.'
+                );
+            }
+        });
+    }
+
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);

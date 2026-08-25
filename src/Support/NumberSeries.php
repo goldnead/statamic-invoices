@@ -44,6 +44,11 @@ class NumberSeries
         }
 
         $at ??= Carbon::now();
+
+        // `0` statt NULL fuer "keine Marke". Ein Unique-Index bindet bei NULL
+        // nicht: zwei Zaehlerzeilen fuer dieselbe Reihe gingen sonst durch, und
+        // zwar auf jeder Installation ohne brand-context — also der Mehrheit.
+        $brandId = (int) ($brandId ?? 0);
         $series = $this->series($brandId, $at);
 
         // `lockForUpdate` on a row that may not exist yet: create it first, then
@@ -104,7 +109,7 @@ class NumberSeries
     {
         $default = (string) config('invoices.number.prefix', 'RE');
 
-        if ($brandId === null) {
+        if (! $brandId) {
             return $default;
         }
 

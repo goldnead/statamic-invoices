@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices\Listeners;
 
+use Goldnead\Invoices\Exceptions\InvoiceNotWritten;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\InvoiceWriter;
 use Goldnead\StatamicPayments\Events\PaymentPaid;
@@ -20,7 +21,7 @@ class WriteInvoiceOnPayment
 
         try {
             $this->writer->forPayment($event->payment->loadMissing('items'));
-        } catch (RateUndetermined $e) {
+        } catch (InvoiceNotWritten $e) {
             // Laut, aber nicht toedlich. Die Zahlung ist erfuellt und der Kunde
             // hat, wofuer er bezahlt hat; was fehlt, ist ein Dokument, das
             // niemand raten darf. Eine Ausnahme bis nach oben wuerde die
@@ -28,7 +29,7 @@ class WriteInvoiceOnPayment
             // schicken lassen — fuer ein Problem, das kein Wiederholen loest.
             Log::warning($e->getMessage(), [
                 'payment_id' => $event->payment->getKey(),
-                'lines' => $e->lines,
+                'lines' => $e instanceof RateUndetermined ? $e->lines : null,
             ]);
         }
     }
