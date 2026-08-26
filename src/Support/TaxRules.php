@@ -117,7 +117,11 @@ final class TaxRules
         'small_business' => ['enabled' => false],
         'merchant_country' => 'DE',
         'merchant_vat_id' => null,
-        'prices_include_tax' => false,
+        // No default, on purpose. Whether a catalogue price already contains
+        // tax cannot be guessed: the same payment becomes two different,
+        // equally consistent invoices depending on the answer, and only one of
+        // them matches the money that arrived. See PriceBasisUndecided.
+        'prices_include_tax' => null,
         'assume_country_when_missing' => null,
         'default_product_class' => null,
         'product_classes' => [],
@@ -255,7 +259,25 @@ final class TaxRules
         bool $isDigital = false,
     ): TaxResult {
         $notes = [];
-        $pricesIncludeTax = (bool) $this->cfg('prices_include_tax', false);
+
+        // NOT asked here, and the first attempt was wrong to.
+        //
+        // The basis only decides anything when tax is actually applied. Under
+        // § 19 no tax is shown at all, an exempt or zero-rated line adds
+        // nothing, and an undetermined rate has no arithmetic to do — in every
+        // one of those cases net equals gross and the question is moot.
+        // Refusing there would have turned three legitimate answers into an
+        // error, including "this seller charges no VAT", which is the whole
+        // point of the small-business branch below.
+        //
+        // The refusal lives in TaxResult::split(), which is the one place the
+        // money is actually divided. False here is a placeholder that split()
+        // never reaches when the real answer is missing.
+        // Passed through as it stands, null included. Casting to bool here
+        // would turn "nobody said" into "net", which is exactly the silent
+        // wrong answer this refuses to give.
+        $pricesIncludeTax = $this->cfg('prices_include_tax');
+        $pricesIncludeTax = $pricesIncludeTax === null ? null : (bool) $pricesIncludeTax;
         $merchantCountry = $this->normalizeCountry((string) $this->cfg('merchant_country', 'DE'));
         $vatId = $this->normalizeVatId($buyerVatId);
 

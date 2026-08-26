@@ -6,6 +6,7 @@ use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
 use Goldnead\Invoices\Exceptions\BrandUnknown;
 use Goldnead\Invoices\Exceptions\DetailsMissing;
+use Goldnead\Invoices\Exceptions\DoesNotMatchThePayment;
 use Goldnead\Invoices\Exceptions\ProductIncomplete;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\Models\Invoice;
@@ -13,6 +14,7 @@ use Goldnead\Invoices\Models\InvoiceItem;
 use Goldnead\Invoices\Support\NumberSeries;
 use Goldnead\Invoices\Support\TaxRules;
 use Goldnead\StatamicPayments\Models\Payment;
+use Goldnead\StatamicPayments\Support\Catalogue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -97,7 +99,7 @@ class InvoiceWriter
                 'seller' => $this->seller($brandId),
                 'net_cent' => array_sum(array_column($zeilen, 'net_cent')),
                 'tax_cent' => array_sum(array_column($zeilen, 'tax_cent')),
-                'gross_cent' => array_sum(array_column($zeilen, 'gross_cent')),
+                'gross_cent' => $this->reconciled($payment, $zeilen),
                 'tax_reason' => $zeilen[0]['tax_reason'] ?? null,
                 'tax_note' => $this->note($zeilen),
             ]);
@@ -252,7 +254,12 @@ class InvoiceWriter
         if ($items->isEmpty()) {
             return [$this->line(
                 $payment->product,
-                $payment->product,
+                // The catalogue's name, not the raw handle. A payment without
+                // line items used to print `kurs` where "Chorleitungskurs"
+                // belongs — and `offer:fruehling-upsell` where the buyer had
+                // read "Frühlings-Upsell". Pre-existing, and only visible once
+                // an offer made the handle ugly enough to notice.
+                $this->product($payment->product)['name'] ?? $payment->product,
                 1,
                 $payment->amount_cent + (int) $payment->discount_cent,
                 (int) $payment->discount_cent,
@@ -284,7 +291,12 @@ class InvoiceWriter
         // es — eine alte Zahlung ohne Positionen — und auch dafuer darf kein
         // Satz geraten werden.
         $satz = TaxRules::for(
-            productHandle: (string) ($handle ?? ''),
+            // The handle the tax class was declared under, which is not always
+            // the handle on the line. A site maps its classes per product, and
+            // an offer carries a handle of its own — so an offer for a
+            // reduced-rate product would otherwise fall to the default class
+            // and print the wrong rate on a document that cannot be corrected.
+            productHandle: $this->taxHandle($handle),
             buyerCountry: $payment->country,
             buyerVatId: is_array($payment->meta) ? ($payment->meta['vat_id'] ?? null) : null,
             // Nicht `?? true`. Ob eine Leistung digital oder koerperlich ist,
@@ -406,16 +418,78 @@ class InvoiceWriter
         return (bool) $product['digital'];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * The invoice total, checked against the money that actually arrived.
+     *
+     * The only external check this document has. Everything else about it is
+     * internally consistent by construction: the same code adds the lines that
+     * writes them, so a wrong rate yields a wrong invoice that looks exactly
+     * like a right one. The bank statement is the one witness that was not
+     * asked.
+     *
+     * It catches a whole family in one line: the price basis pointing the wrong
+     * way (€22.61 against a payment of €19.00 — arithmetically perfect and
+     * wrong), a rate applied where none belongs, a discount split that lost a
+     * cent, a quantity that drifted.
+     *
+     * Deliberately exact rather than tolerant. A cent of slack would hide
+     * exactly the rounding defects this addon has already had to fix once, and
+     * on a document that cannot be amended afterwards, "close enough" is not a
+     * category.
+     *
+     * @param  list<array<string, mixed>>  $zeilen
+     */
+    protected function reconciled(Payment $payment, array $zeilen): int
+    {
+        $brutto = (int) array_sum(array_column($zeilen, 'gross_cent'));
+
+        if ($brutto !== (int) $payment->amount_cent) {
+            throw new DoesNotMatchThePayment($payment, $brutto);
+        }
+
+        return $brutto;
+    }
+
+    /**
+     * The handle a tax class is declared under for this line.
+     *
+     * The line's own handle, unless whatever resolved it points at something
+     * else. `statamic-offers` does: an offer is a presentation of a product,
+     * and the site declared the class under the product.
+     */
+    protected function taxHandle(?string $handle): string
+    {
+        $underneath = $this->product($handle)['product'] ?? null;
+
+        return is_string($underneath) && $underneath !== ''
+            ? $underneath
+            : (string) ($handle ?? '');
+    }
+
+    /**
+     * The thing that was sold, resolved the way the checkout resolves it.
+     *
+     * Through the catalogue, not past it. Reading `statamic-payments.products`
+     * directly skips every resolver another addon registered — and
+     * `statamic-offers` registers one, under the prefix `offer:`. So every
+     * payment that went through an offer carried line handles this method could
+     * not find, `isDigital()` threw ProductIncomplete, and **no invoice was
+     * written at all**. `statamic-funnels` uses an offer for every paid step,
+     * which means the advertised chain funnel → offer → payment → invoice broke
+     * at its last link on any installation using the family as documented.
+     *
+     * Three shipped addons, each with a green suite, none of which crossed the
+     * boundary between them.
+     *
+     * @return array<string, mixed>
+     */
     protected function product(?string $handle): array
     {
-        if ($handle === null) {
+        if ($handle === null || $handle === '') {
             return [];
         }
 
-        $alle = (array) config('statamic-payments.products', []);
-
-        return (array) ($alle[$handle] ?? []);
+        return (array) (app(Catalogue::class)->find($handle) ?? []);
     }
 
     /**

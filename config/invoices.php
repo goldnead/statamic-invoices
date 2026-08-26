@@ -113,7 +113,19 @@ return [
         'merchant_vat_id' => env('INVOICES_SELLER_VAT_ID'),
 
         // Are the prices stored on products gross or net? Global, as in Cargo.
-        'prices_include_tax' => env('INVOICES_PRICES_INCLUDE_TAX', false),
+        /*
+         * Whether the prices in your product catalogue already contain tax.
+         *
+         * Deliberately unset. There is no safe default: 1900 is either €19.00
+         * gross or €19.00 net, the two produce different invoices for the same
+         * payment, and both look right. The first invoice refuses until you
+         * have answered — once, here.
+         *
+         * `true` is the usual answer for a German consumer shop: under the
+         * Preisangabenverordnung the price a buyer is shown is the final price
+         * including VAT, so a catalogue entry of 19 € means 19 € gross.
+         */
+        'prices_include_tax' => env('INVOICES_PRICES_INCLUDE_TAX'),
 
         // Payments from before the buyer-country column existed have no country.
         // Null means those come back undetermined and have to be looked at. Set a

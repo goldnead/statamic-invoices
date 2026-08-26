@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Goldnead\Invoices\Support;
 
+use Goldnead\Invoices\Exceptions\PriceBasisUndecided;
+
 /**
  * What TaxRules decided for one invoice line, and why.
  *
@@ -72,7 +74,13 @@ final class TaxResult
         public readonly ?string $buyerCountry = null,
         public readonly ?string $placeOfSupplyCountry = null,
         public readonly bool $isDigital = false,
-        public readonly bool $pricesIncludeTax = false,
+        /**
+         * Whether catalogue prices already contain tax — or `null` for "nobody
+         * has said". Nullable on purpose: the two answers produce different,
+         * equally consistent invoices for the same payment, so the absence of
+         * an answer is a state of its own and not a synonym for `false`.
+         */
+        public readonly ?bool $pricesIncludeTax = false,
         public readonly array $notes = [],
     ) {}
 
@@ -89,7 +97,7 @@ final class TaxResult
         ?string $buyerCountry = null,
         ?string $placeOfSupplyCountry = null,
         bool $isDigital = false,
-        bool $pricesIncludeTax = false,
+        ?bool $pricesIncludeTax = false,
         array $notes = [],
     ): self {
         return new self(
@@ -125,7 +133,7 @@ final class TaxResult
         ?string $buyerCountry = null,
         ?string $placeOfSupplyCountry = null,
         bool $isDigital = false,
-        bool $pricesIncludeTax = false,
+        ?bool $pricesIncludeTax = false,
         array $notes = [],
     ): self {
         return new self(
@@ -157,7 +165,7 @@ final class TaxResult
         ?string $productClass = null,
         ?string $buyerCountry = null,
         bool $isDigital = false,
-        bool $pricesIncludeTax = false,
+        ?bool $pricesIncludeTax = false,
         array $notes = [],
     ): self {
         return new self(
@@ -245,6 +253,32 @@ final class TaxResult
      */
     public function split(int $amountCents): array
     {
+        // A rate of zero and no rate at all are NOT the same thing, and my
+        // first attempt here treated them as one — which silently made an
+        // undetermined line split as if it were tax-free. An existing test
+        // caught it, which is what it was there for.
+        //
+        // `0` is an answer: § 19, an exemption, a zero-rated zone. The basis
+        // decides nothing then, because net equals gross either way.
+        // `null` is the absence of an answer and keeps falling through to the
+        // throw below it, exactly as before.
+        if ($this->rateBasisPoints === 0) {
+            return ['net' => $amountCents, 'tax' => 0, 'gross' => $amountCents];
+        }
+
+        // Here it decides everything. 1900 is either €19.00 gross with €3.03 of
+        // tax inside it, or €19.00 net plus €3.61 on top — two documents for
+        // one payment, both internally consistent, and only one of them
+        // matching the money that arrived. Nothing downstream contradicts the
+        // wrong one, which is why this refuses instead of picking.
+        // After the rate check, deliberately: an undetermined rate is the
+        // older and more specific complaint, and answering it with "you have
+        // not configured the price basis" would send the reader after the
+        // wrong thing.
+        if ($this->rateBasisPoints !== null && $this->pricesIncludeTax === null) {
+            throw new PriceBasisUndecided;
+        }
+
         if ($this->pricesIncludeTax) {
             $tax = $this->taxInGross($amountCents);
 

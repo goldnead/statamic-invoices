@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.1.0 — 2026-08-26
+
+### Fixed — über ein Angebot verkauft hieß: keine Rechnung
+
+`product()` las `config('statamic-payments.products')` direkt und fragte nie den `Catalogue` — also
+genau die Naht, über die `statamic-offers` seine Angebote unter dem Präfix `offer:` einhängt. Für
+jede Zahlung, die über ein Angebot lief, warf `isDigital()` `ProductIncomplete`, und es entstand
+**gar kein Dokument**. `statamic-funnels` benutzt für jeden Bezahlschritt ein Angebot, die
+beworbene Kette riss also am letzten Glied.
+
+Dazu zwei Nachbarfehler, die derselbe Test aufgedeckt hat:
+
+- **Die Steuerklasse wird je Produkt-Handle konfiguriert**, und ein Angebot hat einen eigenen. Ohne
+  den neuen `taxHandle()` wäre ein Angebot für ein ermäßigtes Produkt still auf die Standardklasse
+  gefallen — falscher Satz, richtiges Aussehen, unveränderliches Dokument.
+- **Der Positionsname war der rohe Handle.** Eine Zahlung ohne Positionen druckte `kurs` statt
+  „Chorleitungskurs" und `offer:fruehling-upsell` statt dem Namen, den der Käufer gelesen hatte.
+  Vorbestehend; erst sichtbar, als ein Angebot den Handle hässlich genug machte.
+
+### Changed — `prices_include_tax` hat keine Voreinstellung mehr
+
+Ab Werk stand es auf `false`, hinterlegte Preise galten also als netto. Für ein Addon, dessen
+Zielgruppe in Deutschland an Verbraucher verkauft, ist das die falsche Vermutung: der angezeigte
+Preis ist nach Preisangabenverordnung der Endpreis inklusive Umsatzsteuer. Wer 19 € einträgt, meint
+19 € brutto — die Rechnung wies 22,61 € aus, für eine Zahlung über 19 €.
+
+Es gibt jetzt keine Vermutung. Die erste Rechnung verweigert sich mit `PriceBasisUndecided`, bis
+jemand einmal je Installation geantwortet hat. Bei Geld ist eine Verweigerung mit Begründung besser
+als eine plausible falsche Zahl.
+
+Die Frage wird nur gestellt, wo sie etwas entscheidet: unter § 19, bei einer Befreiung und bei einem
+Satz von 0 sind netto und brutto dasselbe, und dort schweigt sie.
+
+### Added — die Rechnung muss zum Geld passen
+
+`DoesNotMatchThePayment`: die Summe eines Dokuments muss der Betrag sein, der tatsächlich eingezogen
+wurde. Das ist die einzige Prüfung von außen, die eine Rechnung überhaupt hat — alles andere an ihr
+ist konstruktionsbedingt stimmig, weil derselbe Code die Zeilen addiert, der sie schreibt. Ein
+falscher Satz ergibt eine falsche Rechnung, die genau wie eine richtige aussieht; der Kontoauszug ist
+der einzige Zeuge, den bisher niemand gefragt hat.
+
+Sie fängt die ganze Familie auf einmal: eine falsch herum stehende Preisbasis, einen Satz, wo keiner
+hingehört, einen Nachlass, der beim Aufteilen einen Cent verliert, Positionen, die nicht zur Zahlung
+summieren.
+
+**Was sie nebenbei gezeigt hat:** `prices_include_tax => false` kann für eine aus einer Zahlung
+abgeleitete Rechnung heute gar nicht richtig sein, weil in dieser Familie niemand an der Kasse
+Steuer aufschlägt. Die Option bleibt — ein Wirt kann das eines Tages tun — aber eine falsch
+konfigurierte Installation erfährt es jetzt bei der ersten Rechnung statt beim nächsten Prüfungstermin.
+
 ## 1.0.0 — 2026-08-25
 
 The first release. A review before it went out proved six things wrong; each of them is fixed and
