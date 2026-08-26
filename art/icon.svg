@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#075985"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#075985" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- rounded square background -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- a document with a rule above the last line: the total. Three lines and a
+       sum is the smallest drawing that is unmistakably an invoice rather than a
+       page of prose. -->
+  <g filter="url(#sh)">
+    <rect x="112" y="86" width="288" height="340" rx="28" fill="#FFFFFF"/>
+  </g>
+  <rect x="152" y="152" width="150" height="20" rx="10" fill="url(#bg)"/>
+  <rect x="152" y="212" width="208" height="16" rx="8" fill="url(#bg)"/>
+  <rect x="152" y="256" width="208" height="16" rx="8" fill="url(#bg)"/>
+  <rect x="152" y="300" width="208" height="16" rx="8" fill="url(#bg)"/>
+  <rect x="152" y="344" width="208" height="8" rx="4" fill="url(#bg)"/>
+  <rect x="256" y="368" width="104" height="22" rx="11" fill="url(#bg)"/>
+</svg>
