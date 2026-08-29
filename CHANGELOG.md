@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-08-29
+
+### Neu: vier Zahlen in Insights
+
+Ausgestellte Dokumente, netto, brutto und Umsatzsteuer, aufteilbar nach Art, Käuferland und
+Steuersatz. Eine Gutschrift geht überall wieder ab, deshalb summiert jede Geldzahl vorzeichen-
+richtig — ein Storno kann eine Kachel unter null drücken, und das ist richtig so.
+
+### Behoben: die Kachel zeigte den Umsatz fremder Marken
+
+Bei gewählter Marke zeigte die Gruppe *Rechnungen* vier Dokumente **dreier anderer Marken**. Nicht
+bloß eine falsche Zahl: der Umsatz eines Kunden auf dem Schirm eines anderen. Die Regel steht jetzt
+einmal in `TableMetric::brandScoped()`; hier wird nur noch die Spalte genannt.
+
+Zwei Abfragen erreichen die Tabelle nicht über den zentralen Weg und tragen die Marke ausdrücklich.
+Die zweite davon ist die unangenehmere: `filterOptions()` las die Währungsliste über alle Marken,
+und die meistgenutzte Währung ging von dort in das `where` jeder Kachel. Eine Marke, die nur in
+Franken abrechnet, bekam auf einer sonst in Euro rechnenden Installation jede Zahl auf eine Währung
+gefiltert, die sie nie benutzt, und las 0. **Eine Marke mit Belegen erschien als eine ohne** — das
+Leck von hinten.
+
+Dazu war das Zeitfenster der Steuersatz-Aufteilung einschließend und verlor auf einer
+Millisekunden-Spalte die letzte Sekunde des Zeitraums.
+
 
 ### Fixed — die Marke der Rechnung war die des Prozesses, nicht die des Kaufs
 
