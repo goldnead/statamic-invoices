@@ -22,6 +22,9 @@
         "laravel/pint": "^1.18",
         "pestphp/pest": "^3.0|^4.0"
     },
+    "suggest": {
+        "goldnead/statamic-insights": "Show documents issued, net, gross and VAT on the Insights dashboard, split by kind, buyer country and tax rate"
+    },
     "autoload": {
         "psr-4": {
             "Goldnead\\Invoices\\": "src/"
