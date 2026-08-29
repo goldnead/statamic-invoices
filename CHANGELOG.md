@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed — die Marke der Rechnung war die des Prozesses, nicht die des Kaufs
+
+`brandIdFor()` fragte den Umgebungskontext, und der Zweig, der das absichern sollte, war tot:
+`currentId()` hat Rückgabetyp `int` und fällt auf die Standardmarke zurück, ein `null` gab es nie.
+Im Mehrmarkenbetrieb ohne gesetzten Kontext — Webhook, Konsolenlauf, Folgeabbuchung, also genau
+dort, wo Rechnungen entstehen — bekam die Rechnung damit still die Nummernreihe der Standardmarke,
+seit dem PDF-Commit zusätzlich deren Absender. Kein Fehler, kein Log, nur ein falsches Ergebnis auf
+einem Dokument, das sich nicht mehr ändern lässt.
+
+Die Marke kommt jetzt von der Zahlung. `statamic-payments` stempelt `brand_id` beim Anlegen der
+Zeile, in der Anfrage, in der der Käufer wirklich war, und eine Folgeabbuchung erbt die Marke der
+Zeile, zu der sie gehört. Der Kommentar über der Methode behauptete das Gegenteil („a brand is not
+recoverable from the payment") — er stimmte, bis es diese Spalte gab.
+
+**Nichts wird dadurch verweigert.** Eine Zahlung mit `brand_id = 0` im Mehrmarkenbetrieb gehört
+keiner Marke (Altbestand ohne Backfill, oder ein Checkout, während brand-context nicht antworten
+konnte) und bekommt ihre Rechnung wie bisher — wer bezahlt hat, hat Anspruch auf den Beleg, und ein
+späterer Lauf könnte ihn nicht nachholen, ohne eine Lücke in einer lückenlosen Reihe zu lassen.
+Neu ist nur, dass dieser Rückfall im Log steht. Der Einmarkenbetrieb bleibt bei `0`, und eine
+ältere Installation von `statamic-payments` ohne die Spalte läuft in keinen SQL-Fehler.
+
+`Exceptions\BrandUnknown` ist damit ersatzlos weg. Sie wurde nie geworfen, und eine Ausnahme, die
+niemand wirft, beschreibt ein Verhalten, das es nicht gibt.
+
+### Added — `invoices:brand-check` misst, was vorher falsch abgelegt wurde
+
+Der Vergleich von `invoices.brand_id` gegen `payments.brand_id`: Abweichungen sind genau die
+Rechnungen, die auf dem stillen Weg entstanden sind. Der Befehl nennt Nummer, erwartete und
+tatsächliche Marke und **schreibt nichts um** — die Nummer stammt aus dem lückenlosen Zähler einer
+Marke und ist dort gezählt worden; sie umzuhängen hinterließe ein Loch in der einen Reihe und einen
+Fremdkörper in der anderen. Fehlt die Spalte in `payments`, sagt er das, statt eine leere Liste wie
+eine Entwarnung aussehen zu lassen.
+
 ### Added — die Rechnung wird ein PDF und geht an den Käufer
 
 Bis hierher existierte die Rechnung nur als HTML, und das war eine bewusste Auslassung: eine

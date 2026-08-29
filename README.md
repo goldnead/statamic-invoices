@@ -68,6 +68,22 @@ skipped. A write that fails takes its number back with it.
 **One series per brand.** Two brands sharing a counter each end up with a series full of holes from
 their own point of view — and it is each brand that has to answer for its own numbering.
 
+**Which brand an invoice belongs to is read off the payment**, never off the process that writes it.
+`statamic-payments` stamps `brand_id` on the row while the buyer is still there; a webhook, a console
+run and a follow-up charge have no brand in the environment, and asking the environment there gets
+the default brand's answer rather than none. A payment that carries no brand at all still gets its
+invoice — refusing a document to somebody who has paid would leave a hole in a series that has to be
+gapless — but it says so in the log.
+
+```
+php artisan invoices:brand-check
+```
+
+Lists invoices whose brand is not their payment's, with number, expected brand and actual brand. It
+reports and changes nothing: the number came out of one brand's counter and was counted there, so
+what a wrong document needs is a credit note plus a new invoice in the right series, and that is a
+decision for a person. A non-zero exit code means there were findings.
+
 Changing the format later renumbers nothing: the resolved series is stored on the counter, so an old
 invoice stays in the series it was issued in.
 

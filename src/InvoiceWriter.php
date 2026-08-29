@@ -4,7 +4,6 @@ namespace Goldnead\Invoices;
 
 use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
-use Goldnead\Invoices\Exceptions\BrandUnknown;
 use Goldnead\Invoices\Exceptions\DetailsMissing;
 use Goldnead\Invoices\Exceptions\DoesNotMatchThePayment;
 use Goldnead\Invoices\Exceptions\ProductIncomplete;
@@ -17,6 +16,7 @@ use Goldnead\StatamicPayments\Models\Payment;
 use Goldnead\StatamicPayments\Support\Catalogue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Turns a paid payment into an invoice.
@@ -52,7 +52,13 @@ class InvoiceWriter
             return $vorhanden;
         }
 
-        $this->assertComplete($payment, $this->seller($this->brandIdFor($payment)));
+        // Einmal beantwortet, zweimal gebraucht: an der Marke haengt der
+        // Verkaeufer, den die Pflichtangaben pruefen, und die Reihe, aus der die
+        // Nummer kommt. Zweimal fragen hiesse ausserdem, den Hinweis auf eine
+        // Zahlung ohne Marke zweimal ins Log zu schreiben.
+        $brandId = $this->brandIdFor($payment);
+
+        $this->assertComplete($payment, $this->seller($brandId));
 
         $zeilen = $this->lines($payment);
 
@@ -78,8 +84,7 @@ class InvoiceWriter
         // eine gesperrte Zeile ist auf MySQL ein Deadlock und auf SQLite ein
         // "database is locked" — beides ist ein Grund, es gleich noch einmal zu
         // versuchen, und keiner, eine bezahlte Bestellung ohne Beleg zu lassen.
-        $invoice = DB::transaction(function () use ($payment, $zeilen): Invoice {
-            $brandId = $this->brandIdFor($payment);
+        $invoice = DB::transaction(function () use ($payment, $zeilen, $brandId): Invoice {
             $issuedAt = $payment->paid_at ?? Carbon::now();
 
             $invoice = Invoice::create([
@@ -566,16 +571,36 @@ class InvoiceWriter
     /**
      * Which brand's series this invoice belongs to.
      *
-     * `currentId()` is not usable here. It falls back to the default brand when
-     * nothing is set — and nothing is set in a provider's webhook or in a
-     * console command, which is where invoices are actually written. A second
-     * brand's invoice would land silently in the first brand's series, and it
-     * is immutable a moment later.
+     * **The brand of the sale, not the brand of the process that writes the
+     * document.** Those are the same thing in a checkout request and different
+     * everywhere an invoice is actually written: a provider's webhook, a
+     * console run, a follow-up charge on a subscription. None of them has a
+     * brand in the environment, and `currentId()` answers with the default
+     * brand there rather than with nothing — which is how a second brand's
+     * invoice landed in the first brand's series, silently, and stayed there,
+     * because the row is immutable a moment later.
      *
-     * So: only a brand that is genuinely current counts, and a multi-brand
-     * installation without one refuses rather than guesses. The payment itself
-     * carries no brand — `statamic-payments` does not scope by it — which is
-     * why this cannot be answered from the row.
+     * So the brand is read off the payment. `statamic-payments` stamps
+     * `brand_id` while the row is created — in the request where the buyer
+     * actually was — and a subscription cycle or a follow-up charge inherits
+     * the brand of the row it belongs to. The comment that used to stand here
+     * said a brand was not recoverable from the payment. That was true until
+     * that column existed; it is the row that knows, not the process.
+     *
+     * **`brand_id = 0` while multi-brand is on** is a row that belongs to no
+     * brand: it predates the column on a host whose backfill could not run, or
+     * it was created while brand-context could not say who was current. It
+     * still gets its invoice. Refusing would deny a tax document to somebody
+     * who has already paid, and no later run could produce it either — the
+     * number would then be missing from a series that has to be gapless. So
+     * these fall back to exactly what happened before (the current brand if
+     * there is one, otherwise the default), and say so in the log instead of
+     * doing it quietly. `invoices:brand-check` lists them afterwards; nothing
+     * can move them, an invoice does not change.
+     *
+     * A payments release older than the column behaves the same way and reaches
+     * no schema query on the way there: an attribute that is not on the row is
+     * simply absent, which is the same answer as an unstamped row.
      */
     protected function brandIdFor(Payment $payment): int
     {
@@ -586,19 +611,28 @@ class InvoiceWriter
         try {
             $manager = app('brand-context');
 
+            // Einmarkenbetrieb bleibt bei 0, auch wenn auf der Zahlung etwas
+            // anderes steht: die Zaehlerzeile, der Index und jede bestehende
+            // Rechnung dieser Installation sind auf 0 gebaut.
             if (! $manager->multiBrandEnabled()) {
                 return 0;
             }
 
-            $id = $manager->currentId();
+            $derZahlung = (int) ($payment->getAttribute('brand_id') ?? 0);
 
-            if ($id === null) {
-                throw new BrandUnknown($payment);
+            if ($derZahlung > 0) {
+                return $derZahlung;
             }
 
-            return (int) $id;
-        } catch (BrandUnknown $e) {
-            throw $e;
+            $ersatz = (int) $manager->currentId();
+
+            Log::warning(
+                'statamic-invoices: the payment carries no brand, so its invoice goes into another '
+                .'brand\'s series and stays there. Check the extent with invoices:brand-check.',
+                ['payment_id' => $payment->getKey(), 'brand_id' => $ersatz],
+            );
+
+            return $ersatz;
         } catch (\Throwable) {
             return 0;
         }
