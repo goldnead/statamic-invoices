@@ -2,18 +2,20 @@
 
 namespace Goldnead\Invoices\Support;
 
+use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Models\Invoice;
 use Illuminate\Contracts\View\View;
 
 /**
  * The invoice as a document.
  *
- * HTML, and only HTML. Turning it into a PDF is somebody else's job — a print
- * dialog, a headless browser, a queue worker with wkhtmltopdf — and every one
- * of those is a decision about infrastructure that an addon should not make for
- * its host. What this guarantees instead is that whatever renders it sees
- * exactly what the preview showed: one template, no second implementation that
- * can drift.
+ * HTML, and only HTML. What comes after — the print dialog, the PDF, whatever a
+ * host does with it — reads *this* output, never a second template of its own.
+ * That is the whole guarantee: the preview and the file the buyer keeps are the
+ * same document, because there is only one.
+ *
+ * {@see PdfRenderer} is the seam where it becomes a file, and
+ * {@see DompdfRenderer} the engine that ships with it.
  */
 class Renderer
 {
@@ -47,25 +49,16 @@ class Renderer
                 ])
                 ->values()
                 ->all(),
-            // Currency formatting as a closure rather than a helper, so the
-            // template cannot reach for a global that a host may have redefined.
-            'euro' => fn (int $cent) => number_format($cent / 100, 2, ',', '.').' '.$this->symbol($invoice->currency),
+            // Currency formatting as a closure rather than a global the template
+            // could reach for and a host could have redefined. The formatting
+            // itself lives in `Money`, because the mail that carries the
+            // document names the same total in its first sentence.
+            'euro' => fn (int $cent) => Money::format($cent, $invoice->currency),
         ]);
     }
 
     public function html(Invoice $invoice): string
     {
         return $this->view($invoice)->render();
-    }
-
-    protected function symbol(?string $currency): string
-    {
-        return match (strtoupper((string) $currency)) {
-            'EUR' => '€',
-            'CHF' => 'CHF',
-            'GBP' => '£',
-            'USD' => '$',
-            default => (string) $currency,
-        };
     }
 }

@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+### Added — die Rechnung wird ein PDF und geht an den Käufer
+
+Bis hierher existierte die Rechnung nur als HTML, und das war eine bewusste Auslassung: eine
+Druckmaschine ist eine Infrastruktur-Entscheidung, und die trifft ein Addon nicht für seinen Host.
+Der Ausweg ist ein Contract statt einer festen Klasse — `Contracts\PdfRenderer` hängt im Container,
+mitgeliefert wird `DompdfRenderer`. **dompdf**, weil es reines PHP ist: jede andere Kandidatin
+(Browsershot, wkhtmltopdf) hätte mit dem Addon eine Node-Laufzeit oder ein Systembinary installiert.
+
+Erzeugt wird aus derselben Blade-Vorlage, die schon die Vorschau zeigt. Zwei Layouts, die
+auseinanderlaufen können, kann ein gedrucktes Steuerdokument sich nicht leisten.
+
+**Zweimal erzeugen ergibt dieselbe Datei, Byte für Byte.** dompdf stempelt sonst die Wanduhr
+(`CreationDate`, `ModDate`) und eine gewürfelte Dokument-ID in jede Datei; beides wird jetzt aus der
+Rechnung selbst abgeleitet. Ohne das wäre der zweite Abruf in neun Jahren ein anderes Dokument als
+das, was der Käufer hat — sichtbar niemandem, bis es eine Frage bei einer Prüfung ist.
+
+Zugestellt wird auf `InvoiceIssued`, nicht per Cron: so geht genau das hinaus, was geschrieben
+wurde, einmal. Fehlt eine Pflichtangabe, entsteht weiterhin **keine** Rechnung — der Versandweg
+bekommt nur fertige Dokumente zu sehen und kann an dieser Prüfung nicht vorbei.
+
+Der Versand läuft über den `BrandMailer` aus brand-context, damit die Absenderidentität zur Marke
+gehört. Eine Marke, die eine Mail-Identität angibt und die Adresse weglässt, sendet **gar nicht**;
+eine Marke, die nichts angegeben hat, fällt auf den auf *dieser* Rechnung eingefrorenen Verkäufer
+zurück, nicht auf den host-weiten Absender — der gehört im Mehrmarkenbetrieb einer anderen Marke.
+
+### Changed — brand-context ist jetzt eine echte Abhängigkeit
+
+Vorher `suggest`. Wer Rechnungen verschickt, braucht den `BrandMailer`; eine Zustellung, die je nach
+Installation still unter fremdem Namen hinausgeht, ist keine kleinere Version des Features. Die
+übrigen Addons der Familie, die Mail versenden, halten es seit August genauso.
+
+### Fixed — `invoices:pending` brach bei einer fehlenden Pflichtangabe ab
+
+Die Schleife fing nur `RateUndetermined`. Eine `DetailsMissing` flog bis nach oben, der Lauf endete
+mit einem Stacktrace, und die übrigen Zahlungen wurden nicht einmal mehr angesehen — bei einem
+Befehl, dessen einzige Aufgabe es ist, zu sagen, woran es liegt.
+
+### Changed — die Vorlage kommt ohne Flexbox aus
+
+Kopfzeile, Kennzahlen und Fußzeile lagen auf `display: flex`, und keine reine PHP-Druckmaschine
+kennt das: der Absender wäre unter dem Empfänger gelandet statt neben ihm. Jetzt Tabelle und
+Ränder, die Browser und Druck gleich verstehen. Die Tabellenköpfe stehen auf `font-weight: 700`
+statt 600 — ein Zwischengewicht findet die Druckmaschine nicht und fällt auf ihre Serifenschrift
+zurück.
+
 ## 1.1.0 — 2026-08-26
 
 ### Fixed — über ein Angebot verkauft hieß: keine Rechnung

@@ -11,18 +11,16 @@
     ],
     "require": {
         "php": "^8.2",
+        "dompdf/dompdf": "^3.1",
+        "goldnead/statamic-brand-context": "^1.11",
         "goldnead/statamic-payments": "^1.9",
         "laravel/framework": "^12.40|^13.0",
         "statamic/cms": "^6.0"
     },
     "require-dev": {
-        "goldnead/statamic-brand-context": "^1.11",
         "orchestra/testbench": "^10.0|^11.0",
         "laravel/pint": "^1.18",
         "pestphp/pest": "^3.0|^4.0"
-    },
-    "suggest": {
-        "goldnead/statamic-brand-context": "One number series per brand instead of one for the whole installation."
     },
     "autoload": {
         "psr-4": {

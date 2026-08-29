@@ -68,6 +68,44 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | The document as a file
+    |--------------------------------------------------------------------------
+    |
+    | Rendered from the same Blade template the preview shows — there is no
+    | second layout that can drift away from the first. The engine behind it is
+    | bound to `Contracts\PdfRenderer`; a host that already runs a headless
+    | browser rebinds that interface and this section stops mattering.
+    |
+    */
+
+    'pdf' => [
+        'paper' => 'A4',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sending it to the buyer
+    |--------------------------------------------------------------------------
+    |
+    | Triggered by the `InvoiceIssued` event, so exactly the invoices that were
+    | written get sent, once each. Off means the host sends them itself — the
+    | event is still there to hang a listener on.
+    |
+    | The mail leaves through brand-context's BrandMailer, which means a brand
+    | that declared its own sender identity uses it, and a brand that declared a
+    | broken one sends nothing at all rather than borrowing another brand's
+    | name. `:number` is the invoice number in both strings below.
+    |
+    */
+
+    'delivery' => [
+        'enabled' => env('INVOICES_DELIVER', true),
+        'subject' => 'Ihre Rechnung :number',
+        'filename' => 'Rechnung-:number.pdf',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Where a Kleinbetragsrechnung ends
     |--------------------------------------------------------------------------
     |

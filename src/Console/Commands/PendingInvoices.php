@@ -2,6 +2,8 @@
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\Invoices\Exceptions\DetailsMissing;
+use Goldnead\Invoices\Exceptions\InvoiceNotWritten;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\InvoiceWriter;
 use Goldnead\Invoices\Models\Invoice;
@@ -50,12 +52,18 @@ class PendingInvoices extends Command
             try {
                 $writer->forPayment($zahlung);
                 $geschrieben++;
-            } catch (RateUndetermined $e) {
+            } catch (InvoiceNotWritten $e) {
+                // Alle Gruende, nicht nur der fehlende Steuersatz. Vorher fing
+                // diese Schleife allein `RateUndetermined`; eine fehlende
+                // Pflichtangabe flog bis nach oben und brach den Lauf ab — die
+                // uebrigen Zahlungen wurden dann nicht einmal mehr angesehen,
+                // und der eine Grund, den der Befehl nennen sollte, stand als
+                // Stacktrace da.
                 $offen[] = [
                     $zahlung->id,
                     $zahlung->product,
                     $zahlung->country ?: '—',
-                    $e->lines[0]['reason'] ?? 'keine Regel gefunden',
+                    $this->reason($e),
                 ];
             }
         }
@@ -69,11 +77,28 @@ class PendingInvoices extends Command
             $this->table(['Zahlung', 'Produkt', 'Land', 'Was fehlt'], $offen);
             $this->newLine();
             $this->components->warn(
-                count($offen).' Zahlungen ohne Rechnung. Ein fehlender Satz wird nicht geraten — '
-                .'die Regel gehört in config/invoices.php, dann diesen Befehl mit --write erneut.'
+                count($offen).' Zahlungen ohne Rechnung. Weder ein fehlender Steuersatz noch eine '
+                .'fehlende Pflichtangabe wird geraten — beides gehört nach config/invoices.php '
+                .'beziehungsweise an die Zahlung, dann diesen Befehl mit --write erneut.'
             );
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The one sentence that says what a person has to decide.
+     *
+     * Deliberately not the exception message: that one names the payment and
+     * repeats the law, both of which are already in the row and the column
+     * header. What belongs in the table is the missing piece.
+     */
+    protected function reason(InvoiceNotWritten $e): string
+    {
+        return match (true) {
+            $e instanceof RateUndetermined => $e->lines[0]['reason'] ?? 'keine Regel gefunden',
+            $e instanceof DetailsMissing => implode(', ', $e->missing),
+            default => $e->getMessage(),
+        };
     }
 }

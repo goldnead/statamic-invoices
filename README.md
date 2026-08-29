@@ -17,6 +17,11 @@ VAT rate, and the sender's details on it. This addon is that missing half.
 - PHP 8.2+, Statamic 6, Laravel 12 or 13
 - `goldnead/statamic-payments` ^1.9 — earlier versions do not record the buyer's country or the
   discount per line, and neither can be reconstructed afterwards
+- `goldnead/statamic-brand-context` ^1.11 — every mail this addon sends leaves through its
+  `BrandMailer`, so that each brand's invoice goes out under its own sender identity
+- `dompdf/dompdf` ^3.1 — pure PHP, so installing this addon does not also install a Node runtime or
+  a system binary. It is a real dependency and not a suggestion, because delivering an invoice
+  without a file to attach is not a smaller version of the feature
 
 ## Installation
 
@@ -92,16 +97,77 @@ guessing it would put a wrong figure on a tax document.
 |---|---|
 | `InvoiceIssued` | An invoice exists. Fired after the transaction, so a listener always finds the row. |
 | `CreditNoteIssued` | An invoice was reversed. Carries both documents, because a credit note read alone says nothing about what it undid. |
+| `InvoiceDelivered` | The invoice reached the buyer's mailbox, and at which address. An event rather than a column, because the row refuses every update once it exists. |
 
-Sending, filing and handing to an accountant all hang off those. This addon writes the document and
-stops there.
+Filing it and handing it to an accountant hang off those.
+
+## The PDF
+
+The document is rendered from the same Blade template the preview shows. There is no second layout
+to keep in step, which is the one thing a printed invoice cannot afford.
+
+```php
+app(\Goldnead\Invoices\Contracts\PdfRenderer::class)->render($invoice);   // PDF bytes
+```
+
+**The same invoice always yields the same bytes.** It is read off the stored row and its items —
+never recalculated — and the two things a PDF engine normally stamps with the wall clock (creation
+date, document id) are derived from the invoice instead. So a copy fetched in nine years is the
+document the buyer already has, not a similar one. Change the tax rules, the seller, the price basis
+or the number format afterwards: an invoice already written does not move a byte.
+
+The legal texts (`tax.texts`, `tax.legal_bases`) stay yours to change. They are resolved once, when
+the invoice is written, and frozen onto it as prose — so an edit today changes what tomorrow's
+invoices say and nothing about yesterday's.
+
+The engine is bound to an interface, not hard-wired. A host that already runs a headless browser, or
+has a print house with a template of its own, rebinds it:
+
+```php
+$this->app->bind(\Goldnead\Invoices\Contracts\PdfRenderer::class, MyRenderer::class);
+```
+
+## Sending it to the buyer
+
+On `InvoiceIssued`, so exactly the invoices that were written get sent, once each — no schedule, and
+no second place that decides whether a document should exist. A payment that is missing a mandatory
+detail still produces **no invoice at all**, and `invoices:pending` says which detail; the sending
+path cannot reach around that, because it only ever receives an invoice somebody else wrote.
+
+```php
+'delivery' => [
+    'enabled' => true,                        // off: the host sends them itself
+    'subject' => 'Ihre Rechnung :number',
+    'filename' => 'Rechnung-:number.pdf',
+],
+```
+
+The mail leaves through brand-context's `BrandMailer`, which decides **who it comes from**:
+
+- a brand that declared `settings.mail.from_address` sends under it, over the mailer it named;
+- a brand that declared a mail identity and left out the address sends **nothing** — the invoice
+  exists, the delivery is refused and logged. Falling back to the host-wide sender would put one
+  brand's invoice under another brand's name, which is the failure this is guarding;
+- a brand that declared nothing at all falls back to the seller frozen onto *that* invoice
+  (`invoices.seller_per_brand`), and only then to `config('mail.from')`.
+
+`php artisan vendor:publish --tag=invoices-views` publishes the covering letter alongside the
+document itself.
 
 ## What it deliberately does not do
 
 - **Bookkeeping, DATEV export, dunning.** Different job, different software.
-- **PDF rendering.** It renders HTML — the same template the preview shows, so the two cannot drift.
-  Turning that into a PDF is a decision about infrastructure (a print dialog, a headless browser, a
-  queue worker) that an addon should not make for its host.
+- **Storing the PDF.** It is generated on demand and byte-identical every time, so a stored copy
+  would be a second source of truth with nothing to add — and a disk to manage, back up and keep
+  for ten years.
+- **E-invoicing (ZUGFeRD, XRechnung, EN 16931).** A PDF is a picture of an invoice, not a
+  structured one. German B2B issuing obligations phase in from 2027; that is a format, a validator
+  and a profile decision, and it is its own piece of work rather than a flag on this one.
+- **Sending the credit note.** `CreditNoteIssued` fires and nothing listens. Whether a reversal
+  should land in the buyer's inbox on its own, or beside the refund the provider already announced,
+  is a decision the host has to make.
+- **Re-sending by hand.** A delivery that fails is logged with the invoice number and the reason;
+  there is no `invoices:send` yet.
 - **The OSS threshold.** Below €10,000 of annual turnover into other EU countries the seller's own
   rate applies; above it, the recipient's. That is a state over time and needs a turnover figure,
   which is a bookkeeping question rather than a per-line one. The seam is named in the code.

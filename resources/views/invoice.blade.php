@@ -19,34 +19,46 @@
         /* Der Seitenrand gilt nur beim Drucken. Ohne dieses Padding klebt die
            Vorschau am Fensterrand — und die Vorschau ist das, was jemand sieht,
            bevor er druckt. Beim Druck faellt es weg, sonst waere der Rand doppelt. */
-        body { font: 10pt/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 20mm 18mm; max-width: 210mm; box-sizing: border-box; }
+        body { font: 10pt/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "DejaVu Sans", sans-serif; color: #1a1a1a; margin: 0; padding: 20mm 18mm; max-width: 210mm; box-sizing: border-box; }
         @media print { body { padding: 0; max-width: none; } }
-        .kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; margin-bottom: 2.5rem; }
-        .absender { font-size: 8.5pt; line-height: 1.5; color: #555; white-space: pre-line; text-align: right; }
+        /* Zwei Spalten als Tabelle, nicht als Flexbox. Die Vorlage wird
+           gedruckt, und keine der reinen PHP-Druckmaschinen kennt Flexbox:
+           dort faellt sie auf untereinander stehende Bloecke zurueck, und der
+           Absender landet unter dem Empfaenger statt neben ihm. Eine Tabelle
+           verstehen beide Seiten gleich. */
+        .kopf { width: 100%; margin-bottom: 2.5rem; }
+        .kopf td { border: 0; padding: 0; vertical-align: top; font-size: 10pt; }
+        .absender { font-size: 8.5pt; line-height: 1.5; color: #555; white-space: pre-line; text-align: right; width: 45%; }
         .absender strong { display: block; color: #1a1a1a; font-size: 10pt; }
         .empfaenger { white-space: pre-line; }
         h1 { font-size: 15pt; margin: 0 0 .2rem; }
-        .kennzahlen { display: flex; gap: 2rem; font-size: 9pt; color: #555; margin-bottom: 1.8rem; }
+        .kennzahlen { font-size: 9pt; color: #555; margin-bottom: 1.8rem; }
+        .kennzahlen span { margin-right: 2rem; }
         table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
-        th { text-align: left; font-weight: 600; border-bottom: 1.5px solid #1a1a1a; padding: .5rem .4rem; }
+        /* 700, nicht 600. Die Druckmaschine hat von einer Schrift genau zwei
+           Schnitte, und ein Zwischengewicht, das sie nicht findet, laesst sie
+           auf ihre Standardschrift zurueckfallen — die Kopfzeile stand dann
+           als Serifenschrift ueber einer serifenlosen Tabelle. */
+        th { text-align: left; font-weight: 700; border-bottom: 1.5px solid #1a1a1a; padding: .5rem .4rem; }
         td { padding: .5rem .4rem; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
         .zahl { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .summen { margin-left: auto; width: 52%; margin-top: 1rem; }
+        .summen { margin-left: 48%; width: 52%; margin-top: 1rem; }
         .summen td { border: 0; padding: .25rem .4rem; }
         .summen .gesamt td { border-top: 1.5px solid #1a1a1a; font-weight: 700; font-size: 11pt; padding-top: .5rem; }
         .hinweis { margin-top: 2.2rem; font-size: 9pt; color: #444; }
-        .fuss { margin-top: 3rem; padding-top: .8rem; border-top: 1px solid #e5e5e5; font-size: 8pt; color: #666; display: flex; gap: 2rem; }
+        .fuss { margin-top: 3rem; padding-top: .8rem; border-top: 1px solid #e5e5e5; font-size: 8pt; color: #666; }
+        .fuss span { margin-right: 2rem; }
     </style>
 </head>
 <body>
 
-<div class="kopf">
-    <div>
-        <div class="empfaenger">{{ $empfaenger }}</div>
-    </div>
-    <div class="absender"><strong>{{ $seller['name'] ?? '' }}</strong>{{ $seller['address'] ?? '' }}
-@if(!empty($seller['vat_id']))USt-IdNr. {{ $seller['vat_id'] }}@endif</div>
-</div>
+<table class="kopf">
+    <tr>
+        <td class="empfaenger">{{ $empfaenger }}</td>
+        <td class="absender"><strong>{{ $seller['name'] ?? '' }}</strong>{{ $seller['address'] ?? '' }}
+@if(!empty($seller['vat_id']))USt-IdNr. {{ $seller['vat_id'] }}@endif</td>
+    </tr>
+</table>
 
 <h1>{{ $invoice->isCreditNote() ? 'Stornorechnung' : 'Rechnung' }} {{ $invoice->number }}</h1>
 

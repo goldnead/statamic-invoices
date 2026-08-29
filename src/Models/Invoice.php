@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -20,11 +21,26 @@ use Illuminate\Support\Carbon;
  * to a customer record: an invoice that changes when somebody edits their
  * profile is not an invoice.
  *
+ * @property int $brand_id
  * @property string $number
+ * @property string $kind
+ * @property int|null $payment_id
+ * @property int|null $reverses_invoice_id
  * @property Carbon $issued_at
+ * @property string $currency
+ * @property string|null $buyer_name
+ * @property string|null $buyer_email
+ * @property string|null $buyer_country
+ * @property string|null $buyer_vat_id
+ * @property string|null $buyer_address
+ * @property array<string, mixed>|null $seller
  * @property int $net_cent
  * @property int $tax_cent
  * @property int $gross_cent
+ * @property string|null $tax_reason
+ * @property string|null $tax_note
+ * @property array<string, mixed>|null $meta
+ * @property Collection<int, InvoiceItem> $items
  */
 class Invoice extends Model
 {

@@ -2,6 +2,11 @@
 
 namespace Goldnead\Invoices;
 
+use Goldnead\Invoices\Contracts\PdfRenderer;
+use Goldnead\Invoices\Contracts\SenderIdentityResolver;
+use Goldnead\Invoices\Sending\BrandMailer;
+use Goldnead\Invoices\Sending\BrandSenderIdentity;
+use Goldnead\Invoices\Support\DompdfRenderer;
 use Goldnead\Invoices\Support\NumberSeries;
 use Statamic\Providers\AddonServiceProvider;
 
@@ -21,6 +26,18 @@ class ServiceProvider extends AddonServiceProvider
 
         $this->app->singleton(NumberSeries::class);
         $this->app->singleton(InvoiceWriter::class);
+
+        // Bound to the interface, not used as one. Which engine turns the
+        // document into a PDF is an infrastructure decision, and a host that
+        // already runs a headless browser — or a print house with a template of
+        // its own — rebinds this one line.
+        $this->app->bind(PdfRenderer::class, DompdfRenderer::class);
+
+        // Who an invoice is sent as. The sub-interface exists so a host can
+        // answer that for invoices alone: the seller named on a tax document is
+        // not necessarily the name its newsletter goes out under.
+        $this->app->singleton(SenderIdentityResolver::class, BrandSenderIdentity::class);
+        $this->app->singleton(BrandMailer::class);
     }
 
     public function bootAddon()
