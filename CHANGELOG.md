@@ -2,6 +2,13 @@
 
 ## 1.2.0 — 2026-08-29
 
+### Angehoben: `statamic-payments ^1.14`
+
+Die Marke der Rechnung kommt jetzt von der Zahlung, und die Spalte `brand_id` gibt es dort erst
+seit 1.14. Mit einer älteren Fassung liefe der Code zwar durch — er fiele auf die Standardmarke
+zurück, mit einer Log-Warnung —, aber genau das ist der Fehler, den diese Fassung behebt. Eine
+Anforderung, die den behobenen Zustand wieder zulässt, wäre keine.
+
 ### Neu: vier Zahlen in Insights
 
 Ausgestellte Dokumente, netto, brutto und Umsatzsteuer, aufteilbar nach Art, Käuferland und
