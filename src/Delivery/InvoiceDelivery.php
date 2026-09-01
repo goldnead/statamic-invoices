@@ -78,7 +78,35 @@ class InvoiceDelivery
 
         InvoiceDelivered::dispatch($invoice, $to);
 
+        $this->logOnPayment($invoice, $to);
+
         return true;
+    }
+
+    /**
+     * Into the payment's communication log, where the payments addon offers
+     * one. "Did the invoice go out" is a question asked at the order, and the
+     * detail screen over there answers it from this line.
+     *
+     * By string, behind `class_exists`: an older payments release has no
+     * `PaymentLog`, and this must not turn a delivered invoice into a fatal
+     * error. The facade itself swallows and logs a failed write; it never
+     * throws into a mail path.
+     */
+    protected function logOnPayment(Invoice $invoice, string $to): void
+    {
+        $facade = '\Goldnead\StatamicPayments\Facades\PaymentLog';
+
+        if ($invoice->payment_id === null || ! class_exists($facade)) {
+            return;
+        }
+
+        $subject = str_replace(':number', (string) $invoice->number, (string) config('invoices.delivery.subject', 'Ihre Rechnung :number'));
+
+        $facade::mail((int) $invoice->payment_id, 'invoice', $to, $subject, 'sent', [
+            'invoice' => $invoice->number,
+            'invoice_id' => $invoice->getKey(),
+        ]);
     }
 
     /**

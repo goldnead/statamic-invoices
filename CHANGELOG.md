@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Die Rechnungs-Mail steht im Kommunikationsprotokoll der Zahlung
+
+`InvoiceDelivery::send()` trägt eine zugestellte Rechnung über `PaymentLog::mail($paymentId,
+'invoice', $to, $subject, 'sent', ['invoice' => $number])` in `payment_communications` von
+statamic-payments ein (ab dessen 1.16, Detailseite der Zahlung). Per `class_exists` auf die
+Fassade; ein älteres payments ohne sie bleibt unberührt, und ein Fehler beim Schreiben bricht dort
+nie die Zustellung.
+
 ### Neu: § 19 warnt beim Verbraucher im EU-Ausland
 
 `TaxRules` setzte bei aktiver Kleinunternehmerregelung alles auf 0 % und warnte nur im B2B-Fall,
