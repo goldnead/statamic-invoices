@@ -23,6 +23,17 @@ unbekannter Wert für `eu_threshold_mode` wirft, wie ein unbekannter Schlüssel.
 Das ist die Lesart des Gesetzes, mit der das Addon arbeitet, keine Steuerberatung; sie ist noch
 nicht steuerlich geprüft.
 
+### Behoben: die Hinweise des Steuerrechners erreichten niemanden
+
+`TaxResult::notes` trug sie von Anfang an, und der `InvoiceWriter` ließ sie fallen: er übernahm
+Grund und Mechanismus und sonst nichts. Die B2B-Warnung unter § 19 stand damit seit 1.0.0 auf
+keinem Weg, den ein Mensch sieht. Jetzt schreibt der Writer je Hinweis
+`Log::warning('invoices: tax note', ['payment' => …, 'product' => …, 'note' => …])`, bevor er
+entscheidet, ob er schreibt; legt sie an der Rechnung unter `meta.tax_notes` ab (Liste aus
+`product` und `note`), von wo die Gutschrift sie mitnimmt; und `invoices:pending` gibt sie je
+Zahlung unter der Tabelle aus, mit und ohne `--write`. Neu dafür: `InvoiceWriter::taxNotesFor()`.
+Auf dem Dokument stehen sie nicht, sie sind für die Prüfung, nicht für den Käufer.
+
 ## 1.2.1 — 2026-08-29
 
 ### Angehoben: `statamic-payments ^1.14`

@@ -41,8 +41,22 @@ class PendingInvoices extends Command
 
         $geschrieben = 0;
         $offen = [];
+        $hinweise = [];
 
         foreach ($ohne as $zahlung) {
+            // Was der Steuerrechner an dieser Zahlung fuer zweifelhaft haelt,
+            // steht hier je Zeile — ob die Rechnung nun geschrieben wird oder
+            // nicht. Sonst liegt der Hinweis nur im Log, und dorthin schaut beim
+            // taeglichen Blick niemand.
+            foreach ($this->hinweise($writer, $zahlung) as $hinweis) {
+                $hinweise[] = sprintf(
+                    'Zahlung %d, %s: %s',
+                    $zahlung->id,
+                    $hinweis['product'] ?? '—',
+                    $hinweis['note'],
+                );
+            }
+
             if (! $this->option('write')) {
                 $offen[] = [$zahlung->id, $zahlung->product, $zahlung->country ?: '—', '(nicht versucht)'];
 
@@ -83,7 +97,29 @@ class PendingInvoices extends Command
             );
         }
 
+        if ($hinweise !== []) {
+            $this->newLine();
+            $this->components->warn('Steuerhinweise (nicht auf der Rechnung, aber an ihr gespeichert):');
+            $this->components->bulletList($hinweise);
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * The tax rules' doubts about one payment, or nothing when they cannot even
+     * be asked: a product without a `digital` flag throws before any rule runs,
+     * and that reason already lands in the table through --write.
+     *
+     * @return list<array{product: string|null, note: string}>
+     */
+    protected function hinweise(InvoiceWriter $writer, Payment $zahlung): array
+    {
+        try {
+            return $writer->taxNotesFor($zahlung);
+        } catch (InvoiceNotWritten) {
+            return [];
+        }
     }
 
     /**

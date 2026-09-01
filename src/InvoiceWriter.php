@@ -62,6 +62,20 @@ class InvoiceWriter
 
         $zeilen = $this->lines($payment);
 
+        // Die Hinweise des Steuerrechners gehen vor allem anderen ins Log —
+        // auch vor dem Abbruch wegen eines unbestimmten Satzes. Sie standen
+        // frueher nur auf dem TaxResult und erreichten niemanden: die B2B-
+        // Warnung unter § 19 war ein Jahr lang da, und keiner hat sie gesehen.
+        $hinweise = $this->taxNotes($zeilen);
+
+        foreach ($hinweise as $hinweis) {
+            Log::warning('invoices: tax note', [
+                'payment' => $payment->getKey(),
+                'product' => $hinweis['product'],
+                'note' => $hinweis['note'],
+            ]);
+        }
+
         // Kein geratener Satz. Findet keine Regel, wird keine Rechnung
         // geschrieben — die Zahlung steht, das Dokument wartet auf einen
         // Menschen. Ein falscher Satz auf einem Steuerdokument sieht aus wie
@@ -84,7 +98,7 @@ class InvoiceWriter
         // eine gesperrte Zeile ist auf MySQL ein Deadlock und auf SQLite ein
         // "database is locked" — beides ist ein Grund, es gleich noch einmal zu
         // versuchen, und keiner, eine bezahlte Bestellung ohne Beleg zu lassen.
-        $invoice = DB::transaction(function () use ($payment, $zeilen, $brandId): Invoice {
+        $invoice = DB::transaction(function () use ($payment, $zeilen, $brandId, $hinweise): Invoice {
             $issuedAt = $payment->paid_at ?? Carbon::now();
 
             $invoice = Invoice::create([
@@ -107,11 +121,15 @@ class InvoiceWriter
                 'gross_cent' => $this->reconciled($payment, $zeilen),
                 'tax_reason' => $zeilen[0]['tax_reason'] ?? null,
                 'tax_note' => $this->note($zeilen),
+                // Nicht fuer den Kaeufer, fuer die Pruefung: was der Rechner an
+                // dieser Entscheidung fuer zweifelhaft hielt, steht am Beleg,
+                // nicht nur in einem Log, das rotiert.
+                'meta' => $hinweise === [] ? null : ['tax_notes' => $hinweise],
             ]);
 
             InvoiceItem::whileWriting(function () use ($invoice, $zeilen) {
                 foreach ($zeilen as $zeile) {
-                    unset($zeile['tax_reason'], $zeile['tax_mechanism'], $zeile['tax_code']);
+                    unset($zeile['tax_reason'], $zeile['tax_mechanism'], $zeile['tax_code'], $zeile['tax_notes']);
                     $invoice->items()->create($zeile);
                 }
             });
@@ -223,7 +241,12 @@ class InvoiceWriter
                 'gross_cent' => $original->gross_cent,
                 'tax_reason' => $original->tax_reason,
                 'tax_note' => $original->tax_note,
-                'meta' => ['reverses_number' => $original->number],
+                // Die Hinweise wandern mit: die Gutschrift kehrt genau die
+                // Entscheidung um, an der sie hingen.
+                'meta' => array_filter([
+                    'reverses_number' => $original->number,
+                    'tax_notes' => $original->meta['tax_notes'] ?? null,
+                ]),
             ]);
 
             InvoiceItem::whileWriting(function () use ($storno, $original) {
@@ -331,6 +354,7 @@ class InvoiceWriter
                 'tax_reason' => $satz->reason,
                 'tax_mechanism' => $satz->mechanism,
                 'tax_code' => $satz->code,
+                'tax_notes' => $satz->notes,
             ];
         }
 
@@ -386,7 +410,41 @@ class InvoiceWriter
             'tax_reason' => $satz->reason,
             'tax_mechanism' => $satz->mechanism,
             'tax_code' => null,
+            'tax_notes' => $satz->notes,
         ];
+    }
+
+    /**
+     * What the tax rules found doubtful about a payment, per line, without
+     * writing anything. `invoices:pending` shows it; forPayment() logs it and
+     * stores it under `meta.tax_notes`.
+     *
+     * @return list<array{product: string|null, note: string}>
+     */
+    public function taxNotesFor(Payment $payment): array
+    {
+        return $this->taxNotes($this->lines($payment));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $zeilen
+     * @return list<array{product: string|null, note: string}>
+     */
+    protected function taxNotes(array $zeilen): array
+    {
+        $hinweise = [];
+
+        foreach ($zeilen as $zeile) {
+            foreach ($zeile['tax_notes'] ?? [] as $note) {
+                $eintrag = ['product' => $zeile['product'] ?? null, 'note' => (string) $note];
+
+                if (! in_array($eintrag, $hinweise, true)) {
+                    $hinweise[] = $eintrag;
+                }
+            }
+        }
+
+        return $hinweise;
     }
 
     /**
