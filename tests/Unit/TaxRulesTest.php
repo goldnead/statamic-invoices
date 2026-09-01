@@ -469,6 +469,16 @@ it('does not warn about a third-country consumer under the EU threshold switch',
     expect($result->notes)->toBe([]);
 });
 
+it('measures "abroad" from the seller\'s country, not from Germany', function () {
+    $austrian = ['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above'], 'merchant_country' => 'AT'];
+
+    $home = taxRules($austrian)->resolve('cw-kurs', 'AT', null, true);
+    $abroad = taxRules($austrian)->resolve('cw-kurs', 'DE', null, true);
+
+    expect($home->notes)->toBe([])
+        ->and(implode(' ', $abroad->notes))->toContain('Verbraucher in DE');
+});
+
 it('refuses a threshold mode it does not know', function () {
     expect(fn () => new TaxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'abvoe']]))
         ->toThrow(InvalidArgumentException::class, 'eu_threshold_mode');

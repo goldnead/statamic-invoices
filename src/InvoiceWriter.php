@@ -246,7 +246,7 @@ class InvoiceWriter
                 'meta' => array_filter([
                     'reverses_number' => $original->number,
                     'tax_notes' => $original->meta['tax_notes'] ?? null,
-                ]),
+                ], fn ($wert) => $wert !== null),
             ]);
 
             InvoiceItem::whileWriting(function () use ($storno, $original) {

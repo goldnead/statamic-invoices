@@ -5,6 +5,7 @@ namespace Goldnead\Invoices\Tests\Feature;
 use Goldnead\Invoices\Console\Commands\PendingInvoices;
 use Goldnead\Invoices\Facades\Invoices;
 use Goldnead\Invoices\InvoiceWriter;
+use Goldnead\Invoices\Support\NumberSeries;
 use Goldnead\Invoices\Tests\TestCase;
 use Goldnead\StatamicPayments\Models\Payment;
 use Illuminate\Contracts\Console\Kernel;
@@ -73,6 +74,50 @@ class TaxNotesReachSomeoneTest extends TestCase
                 && ($kontext['product'] ?? null) === 'kurs'
                 && str_contains((string) ($kontext['note'] ?? ''), 'Verbraucher in AT'))
             ->once();
+    }
+
+    #[Test]
+    public function a_bundle_raises_the_note_once_per_line_and_never_twice_for_one(): void
+    {
+        config(['statamic-payments.products.workbook' => ['name' => 'Workbook', 'amount_cent' => 12450, 'digital' => true]]);
+
+        Log::spy();
+
+        // Zwei Zeilen, zwei Produkte: derselbe Zweifel je Zeile, also zwei
+        // Eintraege — je Produkt genau einer. Zweimal dasselbe Produkt auf einer
+        // Zahlung laesst der Unique-Index auf payment_items nicht zu; die
+        // Dedup-Regel selbst prueft der Test darunter.
+        $zahlung = $this->zahlungAusOesterreich();
+        $zahlung->items()->createMany([
+            ['product' => 'kurs', 'name' => 'Kurs', 'amount_cent' => 12450, 'quantity' => 1, 'kind' => 'primary'],
+            ['product' => 'workbook', 'name' => 'Workbook', 'amount_cent' => 12450, 'quantity' => 1, 'kind' => 'bump'],
+        ]);
+
+        $rechnung = app(InvoiceWriter::class)->forPayment($zahlung->fresh(['items']));
+
+        $this->assertCount(2, $rechnung->items);
+        $this->assertSame(['kurs', 'workbook'], array_column($rechnung->meta['tax_notes'], 'product'));
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn ($nachricht) => $nachricht === 'invoices: tax note')
+            ->twice();
+    }
+
+    #[Test]
+    public function the_same_note_on_the_same_product_is_kept_once(): void
+    {
+        $writer = new class(app(NumberSeries::class)) extends InvoiceWriter
+        {
+            /** @param list<array<string, mixed>> $zeilen */
+            public function dedup(array $zeilen): array
+            {
+                return $this->taxNotes($zeilen);
+            }
+        };
+
+        $zeile = ['product' => 'kurs', 'tax_notes' => ['Verbraucher in AT: …', 'Verbraucher in AT: …']];
+
+        $this->assertCount(1, $writer->dedup([$zeile, $zeile]));
     }
 
     #[Test]
