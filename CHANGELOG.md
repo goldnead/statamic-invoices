@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Neu: § 19 warnt beim Verbraucher im EU-Ausland
+
+`TaxRules` setzte bei aktiver Kleinunternehmerregelung alles auf 0 % und warnte nur im B2B-Fall,
+also wenn eine USt-IdNr vorlag. Für einen Verbraucher in einem anderen Mitgliedstaat kam nichts —
+dabei ist das der Fall, in dem trotz § 19 Steuer im Käuferland anfallen kann: Bei digitalen
+Leistungen liegt der Leistungsort beim Käufer (§ 3a Abs. 5 UStG, bei Waren § 3c), sobald der
+EU-weite B2C-Umsatz die 10.000-€-Schwelle übersteigt. Die deutsche Befreiung reicht dann nur über
+die EU-Kleinunternehmerregelung (§ 19a UStG, seit 01.01.2025, „EX"-Nummer) dorthin; ohne sie ist
+Umsatzsteuer des Käuferlandes fällig (OSS). Unterhalb der Schwelle bleibt der Leistungsort in
+Deutschland und § 19 greift wie gehabt.
+
+Zwei neue Schlüssel unter `tax.small_business`, beide nicht berechnet, weil beide Tatsachen über
+das Jahr sind und nicht über die Zeile: `eu_threshold_mode` (`'below'`, Standard, oder `'above'`)
+und `eu_scheme` (`false`, Standard). Über der Schwelle ohne EU-Regelung trägt das Ergebnis eine
+Warnung im `notes`-Feld, derselbe Weg wie beim B2B-Fall. Mit EU-Regelung nennt `tax_reason` die
+§ 19a-Befreiung (`texts.small_business_eu`, `legal_bases.small_business_eu`) statt § 19. Ein
+unbekannter Wert für `eu_threshold_mode` wirft, wie ein unbekannter Schlüssel.
+
+Das ist die Lesart des Gesetzes, mit der das Addon arbeitet, keine Steuerberatung; sie ist noch
+nicht steuerlich geprüft.
+
 ## 1.2.1 — 2026-08-29
 
 ### Angehoben: `statamic-payments ^1.14`

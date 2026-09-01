@@ -140,8 +140,27 @@ return [
 
         // § 19 UStG. A switch that suspends all of the below: no tax is shown, on
         // anything, and the reason goes on the invoice. German law wants the note.
+        //
+        // The two keys underneath only matter for a consumer in another EU country.
+        // § 19 is a domestic rule: for a digital supply to such a buyer the place of
+        // supply is in their country (§ 3a Abs. 5 UStG; § 3c for goods), and once the
+        // seller's EU-wide B2C turnover passes 10.000 € a year (§ 3a Abs. 5 Satz 3,
+        // § 3c Abs. 4 UStG) that country's VAT is due — unless the seller takes part
+        // in the EU small business scheme (§ 19a UStG, since 2025, the "EX" number).
+        //
+        //   eu_scheme          true if you use the EU small business scheme, § 19a UStG.
+        //                      Such lines then carry the § 19a note instead of § 19.
+        //   eu_threshold_mode  'below' (default) or 'above' the 10.000 € threshold.
+        //                      Below it the place of supply stays at home and § 19
+        //                      answers. Above it, without `eu_scheme`, the result
+        //                      carries a warning that 0 % is probably wrong.
+        //
+        // Neither is computed: both are facts about your year, not about one line.
+        // This is the addon's reading of the law, not tax advice — confirm it.
         'small_business' => [
             'enabled' => env('INVOICES_SMALL_BUSINESS', false),
+            'eu_scheme' => env('INVOICES_SMALL_BUSINESS_EU_SCHEME', false),
+            'eu_threshold_mode' => env('INVOICES_SMALL_BUSINESS_EU_THRESHOLD', 'below'),
         ],
 
         // Where the seller sits. Decides what counts as domestic, as EU, and as export.
@@ -230,6 +249,7 @@ return [
         // "Steuerschuldnerschaft des Leistungsempfängers" for reverse charge.
         'texts' => [
             'small_business' => 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+            'small_business_eu' => 'Steuerfrei nach der EU-Kleinunternehmerregelung, § 19a UStG.',
             'reverse_charge' => 'Steuerschuldnerschaft des Leistungsempfängers.',
             'intra_community_supply' => 'Steuerfreie innergemeinschaftliche Lieferung.',
             'export' => 'Steuerfreie Ausfuhrlieferung.',
@@ -240,6 +260,7 @@ return [
         // Stored alongside each decision so an audit can follow it years later.
         'legal_bases' => [
             'small_business' => '§ 19 UStG',
+            'small_business_eu' => '§ 19a UStG i. V. m. Art. 284 MwStSystRL',
             'reverse_charge' => '§ 3a Abs. 2 UStG i. V. m. Art. 196 MwStSystRL, Hinweispflicht § 14a Abs. 5 UStG',
             'intra_community_supply' => '§ 4 Nr. 1 Buchst. b i. V. m. § 6a UStG',
             'export' => '§ 4 Nr. 1 Buchst. a i. V. m. § 6 UStG',

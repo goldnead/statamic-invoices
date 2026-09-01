@@ -31,7 +31,10 @@ namespace Goldnead\Invoices\Support;
  * depend on when you call it. The seam for it is {@see self::destinationTaxationApplies()},
  * backed by the `tax.oss.destination_taxation` switch. Anyone wanting the threshold decided
  * automatically builds a separate service, evaluates it at the moment of payment, stores
- * its verdict on the payment, and feeds it in here — not the other way round.
+ * its verdict on the payment, and feeds it in here — not the other way round. The same
+ * threshold has a second switch under `tax.small_business.eu_threshold_mode`, because it
+ * decides something else there: not which rate, but whether a small business's 0 % still
+ * holds for a consumer in another member state (§ 3a Abs. 5, § 19a UStG).
  *
  * **The VIES lookup.** Only the format of a VAT ID is checked here, in
  * {@see self::isPlausibleVatId()}. A real confirmation request (BZSt / VIES) is a network
@@ -114,7 +117,12 @@ final class TaxRules
      * @var array<string, mixed>
      */
     private const DEFAULTS = [
-        'small_business' => ['enabled' => false],
+        // `eu_scheme`: the seller takes part in the EU small business scheme (§ 19a UStG,
+        // since 2025, the "EX" number). `eu_threshold_mode`: which side of the 10.000 €
+        // threshold (§ 3a Abs. 5 Satz 3, § 3c Abs. 4 UStG) the seller is on — 'below' or
+        // 'above'. Both only matter for a consumer in another member state; see the § 19
+        // branch in resolve().
+        'small_business' => ['enabled' => false, 'eu_scheme' => false, 'eu_threshold_mode' => 'below'],
         'merchant_country' => 'DE',
         'merchant_vat_id' => null,
         // No default, on purpose. Whether a catalogue price already contains
@@ -131,6 +139,7 @@ final class TaxRules
         'eu_member_states' => null,
         'texts' => [
             'small_business' => 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+            'small_business_eu' => 'Steuerfrei nach der EU-Kleinunternehmerregelung, § 19a UStG.',
             'reverse_charge' => 'Steuerschuldnerschaft des Leistungsempfängers.',
             'intra_community_supply' => 'Steuerfreie innergemeinschaftliche Lieferung.',
             'export' => 'Steuerfreie Ausfuhrlieferung.',
@@ -139,6 +148,7 @@ final class TaxRules
         ],
         'legal_bases' => [
             'small_business' => '§ 19 UStG',
+            'small_business_eu' => '§ 19a UStG i. V. m. Art. 284 MwStSystRL',
             'reverse_charge' => '§ 3a Abs. 2 UStG i. V. m. Art. 196 MwStSystRL, Hinweispflicht § 14a Abs. 5 UStG',
             'intra_community_supply' => '§ 4 Nr. 1 Buchst. b i. V. m. § 6a UStG',
             'export' => '§ 4 Nr. 1 Buchst. a i. V. m. § 6 UStG',
@@ -157,9 +167,17 @@ final class TaxRules
      * @var array<string, array<int, string>>
      */
     private const CHECKED_SUB_KEYS = [
-        'small_business' => ['enabled'],
+        'small_business' => ['enabled', 'eu_scheme', 'eu_threshold_mode'],
         'oss' => ['destination_taxation'],
     ];
+
+    /**
+     * The only two answers to "which side of the 10.000 € threshold". Checked for the same
+     * reason the keys are: 'abvoe' would otherwise read as 'below' and switch the warning off.
+     *
+     * @var array<int, string>
+     */
+    private const EU_THRESHOLD_MODES = ['below', 'above'];
 
     /**
      * @param  array<string, mixed>  $config  the `tax` block of `config/invoices.php`
@@ -212,6 +230,18 @@ final class TaxRules
                     implode(', ', $allowed),
                 ));
             }
+        }
+
+        $mode = $config['small_business']['eu_threshold_mode'] ?? null;
+
+        if ($mode !== null && ! in_array($mode, self::EU_THRESHOLD_MODES, true)) {
+            throw new \InvalidArgumentException(sprintf(
+                'tax.small_business.eu_threshold_mode has to be one of %s, %s given. A value this '
+                .'class does not know would quietly count as "below" and silence a warning about '
+                .'tax owed in another member state.',
+                implode(', ', array_map(static fn (string $m): string => "'{$m}'", self::EU_THRESHOLD_MODES)),
+                is_string($mode) ? "'{$mode}'" : get_debug_type($mode),
+            ));
         }
 
         $this->config = array_replace(self::DEFAULTS, $config);
@@ -288,9 +318,12 @@ final class TaxRules
         // to determine.
         if ((bool) $this->cfg('small_business.enabled', false)) {
             $country = $this->normalizeCountry($buyerCountry);
+            $isBusiness = $vatId !== null && $this->isPlausibleVatId($vatId);
+            $crossBorderEu = $country !== null && $country !== $merchantCountry && $this->isEuMemberState($country);
+            $textKey = 'small_business';
+            $placeOfSupply = null;
 
-            if ($vatId !== null && $this->isPlausibleVatId($vatId) && $country !== null
-                && $country !== $merchantCountry && $this->isEuMemberState($country)) {
+            if ($crossBorderEu && $isBusiness) {
                 // Same shape of doubt as the exemption branch further down, and worth the
                 // same warning.
                 $notes[] = 'Cross-border B2B case while the small business scheme is on: § 19 UStG '
@@ -298,15 +331,48 @@ final class TaxRules
                     .'Have a tax adviser confirm this before invoicing it this way.';
             }
 
+            // A consumer in another member state. § 19 is silent here, and silence was the
+            // wrong answer: for a digital supply the place of supply is where the consumer
+            // sits (§ 3a Abs. 5 UStG), for goods it moves there too (§ 3c UStG) — once the
+            // seller's EU-wide B2C turnover is past 10.000 € a year (§ 3a Abs. 5 Satz 3,
+            // § 3c Abs. 4 UStG). Above that line the German exemption reaches the other
+            // country only through the EU small business scheme (§ 19a UStG, since 2025);
+            // without it, that country's VAT is due, via OSS. Below the line the place of
+            // supply stays at home and § 19 answers as before.
+            //
+            // Which side of the line the seller is on is a fact about a year's turnover,
+            // not about this line — the same reason the OSS threshold is a switch further
+            // down. So it is a switch here too, and the same one is not reused: OSS
+            // destination taxation is about *which rate*, this is about *whether 0 % is
+            // still true*. This is the reading of the law this class works with; it has
+            // not been confirmed by a tax adviser, and the note says so.
+            if ($crossBorderEu && ! $isBusiness
+                && $this->cfg('small_business.eu_threshold_mode', 'below') === 'above') {
+                if ((bool) $this->cfg('small_business.eu_scheme', false)) {
+                    $textKey = 'small_business_eu';
+                    $placeOfSupply = $country;
+                } else {
+                    $notes[] = sprintf(
+                        'Verbraucher in %s: über der 10.000-€-Schwelle fällt Umsatzsteuer im '
+                        .'Käuferland an (%s). Ohne EU-Kleinunternehmerregelung (§ 19a UStG) ist '
+                        .'0 %% hier vermutlich falsch. Mit dem Steuerberater klären, bevor so '
+                        .'fakturiert wird.',
+                        $country,
+                        $isDigital ? '§ 3a Abs. 5 UStG' : '§ 3c UStG',
+                    );
+                }
+            }
+
             return TaxResult::zeroRated(
                 mechanism: TaxResult::MECHANISM_SMALL_BUSINESS,
-                reason: (string) $this->cfg('texts.small_business', self::DEFAULTS['texts']['small_business']),
-                legalBasis: $this->legalBasis('small_business'),
+                reason: (string) $this->cfg('texts.'.$textKey, self::DEFAULTS['texts'][$textKey]),
+                legalBasis: $this->legalBasis($textKey),
                 productHandle: $productHandle,
                 // Not needed for the decision, but the invoice is read years later and the
                 // class it covered is part of what happened.
                 productClass: $this->productClassFor($productHandle),
                 buyerCountry: $country,
+                placeOfSupplyCountry: $placeOfSupply,
                 isDigital: $isDigital,
                 pricesIncludeTax: $pricesIncludeTax,
                 notes: $notes,

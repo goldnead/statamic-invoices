@@ -187,5 +187,9 @@ document itself.
 - **The OSS threshold.** Below €10,000 of annual turnover into other EU countries the seller's own
   rate applies; above it, the recipient's. That is a state over time and needs a turnover figure,
   which is a bookkeeping question rather than a per-line one. The seam is named in the code.
+  The same threshold matters under **§ 19**: a small business selling to a consumer in another
+  member state above it owes that country's VAT unless it uses the EU small business scheme
+  (§ 19a UStG). `tax.small_business.eu_threshold_mode` and `eu_scheme` tell the addon which case
+  you are in; it warns on the result, it does not decide. None of this is tax advice.
 - **VIES lookups.** A VAT ID is checked for shape here, never over the network: a tax calculation
   that depends on somebody else's server is one that fails at checkout when their server is down.

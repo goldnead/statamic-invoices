@@ -396,6 +396,84 @@ it('suppresses reverse charge under § 19 but says that it did', function () {
         ->and(implode(' ', $result->notes))->toContain('Cross-border B2B case');
 });
 
+// ── § 19 meets a consumer in another member state ────────────────────────────
+
+it('warns about a consumer abroad once the seller is above the threshold without the EU scheme', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('cw-kurs', 'AT', null, true);
+
+    expect($result->rateBasisPoints)->toBe(0)
+        ->and($result->mechanism)->toBe(TaxResult::MECHANISM_SMALL_BUSINESS)
+        ->and($result->reason)->toBe('Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.')
+        ->and(implode(' ', $result->notes))->toContain('Verbraucher in AT')
+        ->and(implode(' ', $result->notes))->toContain('§ 3a Abs. 5 UStG')
+        ->and(implode(' ', $result->notes))->toContain('§ 19a');
+});
+
+it('names § 3c rather than § 3a for goods to that consumer', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('chorwerk-noten', 'AT', null, false);
+
+    expect(implode(' ', $result->notes))->toContain('§ 3c UStG')
+        ->and(implode(' ', $result->notes))->not->toContain('§ 3a Abs. 5');
+});
+
+it('cites the EU small business scheme instead of § 19 when the seller uses it', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_scheme' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('cw-kurs', 'AT', null, true);
+
+    expect($result->rateBasisPoints)->toBe(0)
+        ->and($result->mechanism)->toBe(TaxResult::MECHANISM_SMALL_BUSINESS)
+        ->and($result->reason)->toBe('Steuerfrei nach der EU-Kleinunternehmerregelung, § 19a UStG.')
+        ->and($result->legalBasis)->toContain('§ 19a UStG')
+        ->and($result->placeOfSupplyCountry)->toBe('AT')
+        ->and($result->notes)->toBe([]);
+});
+
+it('leaves a consumer abroad at § 19 while the seller is below the threshold', function () {
+    $default = taxRules(['small_business' => ['enabled' => true]])
+        ->resolve('cw-kurs', 'AT', null, true);
+    $explicit = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'below', 'eu_scheme' => true]])
+        ->resolve('cw-kurs', 'AT', null, true);
+
+    foreach ([$default, $explicit] as $result) {
+        expect($result->rateBasisPoints)->toBe(0)
+            ->and($result->reason)->toBe('Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.')
+            ->and($result->legalBasis)->toBe('§ 19 UStG')
+            ->and($result->placeOfSupplyCountry)->toBeNull()
+            ->and($result->notes)->toBe([]);
+    }
+});
+
+it('keeps the B2B warning, and only that one, for a business abroad above the threshold', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+
+    expect($result->reason)->toBe('Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.')
+        ->and($result->notes)->toHaveCount(1)
+        ->and($result->notes[0])->toContain('Cross-border B2B case');
+});
+
+it('says nothing extra to a domestic consumer, whatever the threshold switch says', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('cw-kurs', 'DE', null, true);
+
+    expect($result->reason)->toBe('Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.')
+        ->and($result->notes)->toBe([]);
+});
+
+it('does not warn about a third-country consumer under the EU threshold switch', function () {
+    $result = taxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'above']])
+        ->resolve('cw-kurs', 'US', null, true);
+
+    expect($result->notes)->toBe([]);
+});
+
+it('refuses a threshold mode it does not know', function () {
+    expect(fn () => new TaxRules(['small_business' => ['enabled' => true, 'eu_threshold_mode' => 'abvoe']]))
+        ->toThrow(InvalidArgumentException::class, 'eu_threshold_mode');
+});
+
 it('beats an exemption too, and keeps the § 19 wording', function () {
     $result = taxRules(['small_business' => ['enabled' => true]])
         ->resolve('einzelunterricht', 'DE', null, false);
