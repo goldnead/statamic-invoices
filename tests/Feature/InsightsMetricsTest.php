@@ -757,15 +757,25 @@ class InsightsMetricsTest extends TestCase
      *
      * By class name rather than instance, so booting this addon does not build
      * four metric objects on a request that renders none of them.
+     *
+     * Only this addon's handles are compared: statamic-payments registers its
+     * own metrics with the same sibling since 1.14, and they sit in the same
+     * stand-in registry. What they are is payments' business, not ours.
      */
     #[Test]
     public function the_service_provider_offers_every_metric_to_the_sibling(): void
     {
+        $unsere = array_filter(
+            $this->insights->registered,
+            fn (string $handle) => str_starts_with($handle, 'invoices.'),
+            ARRAY_FILTER_USE_KEY,
+        );
+
         $this->assertSame([
             'invoices.issued' => Issued::class,
             'invoices.net' => Net::class,
             'invoices.gross' => Gross::class,
             'invoices.tax' => Tax::class,
-        ], $this->insights->registered);
+        ], $unsere);
     }
 }

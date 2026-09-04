@@ -106,19 +106,6 @@ class TheBrandComesFromThePaymentTest extends TestCase
         });
     }
 
-    /** Der Stand vor jener Migration, den eine Installation heute noch haben darf. */
-    private function zahlungenTragenKeineMarke(): void
-    {
-        if (! Schema::hasColumn('payments', 'brand_id')) {
-            return;
-        }
-
-        // Erst der Index: SQLite weigert sich, eine Spalte zu loeschen, auf die
-        // noch einer zeigt. Dieselbe Reihenfolge wie im `down()` drueben.
-        Schema::table('payments', fn (Blueprint $tabelle) => $tabelle->dropIndex('payments_brand_id_index'));
-        Schema::table('payments', fn (Blueprint $tabelle) => $tabelle->dropColumn('brand_id'));
-    }
-
     /**
      * brand-context legt beim Migrieren schon eine Standardmarke an, deshalb
      * updateOrCreate: die erste Marke ist die, die es bereits gibt.
@@ -241,20 +228,10 @@ class TheBrandComesFromThePaymentTest extends TestCase
         $this->assertStringStartsWith('RE', $rechnung->number);
     }
 
-    #[Test]
-    public function an_installation_whose_payments_have_no_brand_column_still_writes_invoices(): void
-    {
-        $this->zahlungenTragenKeineMarke();
-
-        // composer verlangt statamic-payments `^1.9`, die Spalte kam mit 1.13.
-        // Dazwischen darf nichts nach ihr fragen: kein Schema-Blick, kein
-        // SELECT auf eine Spalte, die es nicht gibt, kein SQL-Fehler auf einer
-        // bezahlten Bestellung.
-        PaymentPaid::dispatch($this->zahlung());
-
-        $rechnung = Invoice::firstOrFail();
-
-        $this->assertSame(1, (int) $rechnung->brand_id, 'ohne Spalte bleibt es beim bisherigen Verhalten');
-        $this->assertStringStartsWith('AA', $rechnung->number);
-    }
+    // Bis 048fde2 stand hier ein Test fuer Zahlungen ohne `brand_id`-Spalte.
+    // composer verlangt seit dem statamic-payments `^1.14`, die Spalte kam mit
+    // 1.13 — den Zustand gibt es auf keiner Installation mehr, die dieses
+    // Addon ueberhaupt installieren kann. payments 1.17 setzt die Spalte
+    // zudem selbst beim Anlegen (`creating`), womit der Test nur noch bewies,
+    // dass man in eine geloeschte Spalte nicht schreiben kann.
 }
