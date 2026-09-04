@@ -1,0 +1,20 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+
+    paths:
+        - src
+
+    # The analytics addon is a `suggest`, not a `require`: the metrics under
+    # src/Integrations/Insights implement its contract and it is not in vendor.
+    # Scanned from the test stand-ins — the same declarations, byte for byte,
+    # plus the verbatim copy of the TableMetric base class the metrics extend —
+    # so the metrics are checked against the real signatures instead of being
+    # reported as unknown classes. Scanned, not analysed: the files themselves
+    # are not code this package ships.
+    scanFiles:
+        - tests/Fakes/insights-contracts.php
+        - tests/Fakes/insights-table-metric.php

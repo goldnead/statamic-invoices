@@ -1,0 +1,10 @@
+{
+    "_why": {
+        "release.readme": "The rule looks for a heading containing usage, how it works, configuration, use or features. This README covers usage under the headings its subject suggests: The number, It does not change, Events, The PDF, Sending it to the buyer. Renaming them to satisfy a regex would make the listing worse. Revisit if the README is restructured.",
+        "testing.addon-testcase": "tests/TestCase.php extends Orchestra directly on purpose and says why in its own comments: Testbench never fires Statamic::booted for a package outside the app's addon manifest, so bootAddon() is invoked by hand, statamic-payments' migrations are loaded beside our own, and Testbench gets a composer lock stand-in. Moving to Statamic\\Testing\\AddonTestCase is a refactor of the test harness, not a flag to flip; it is filed as an open point rather than done in passing."
+    },
+    "disable": [
+        "release.readme",
+        "testing.addon-testcase"
+    ]
+}

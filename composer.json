@@ -20,7 +20,8 @@
     "require-dev": {
         "orchestra/testbench": "^10.0|^11.0",
         "laravel/pint": "^1.18",
-        "pestphp/pest": "^3.0|^4.0"
+        "pestphp/pest": "^3.0|^4.0",
+        "larastan/larastan": "^3.0"
     },
     "suggest": {
         "goldnead/statamic-insights": "Show documents issued, net, gross and VAT on the Insights dashboard, split by kind, buyer country and tax rate"

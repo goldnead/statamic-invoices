@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Not a column on a brand: a series is (brand, prefix, period), and a site that
  * counts per month has twelve of them a year.
+ *
+ * @property int $brand_id
+ * @property string $series
+ * @property int $last_number
  */
 class InvoiceCounter extends Model
 {
