@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.3.1 — 2026-09-05
+
+Kein Verhalten geändert. Das Addon schreibt die Rechnungen, mit denen die Suite verkauft wird, und
+war das einzige der Familie ohne Lizenzdatei und ohne CI.
+
+### Lizenz
+
+`LICENSE.md` liegt jetzt bei, wortgleich mit statamic-payments und den übrigen Geschwistern
+(proprietäre Lizenz, Copyright Adrian Goldner). `composer.json` sagte schon `proprietary`; die
+Datei fehlte.
+
+### CI
+
+`.github/workflows/tests.yml` nach dem Vorbild der Familie: Matrix PHP 8.2 bis 8.4 × Laravel ^12
+und ^13 × prefer-lowest und prefer-stable (PHP 8.2 mit Laravel 13 ausgeschlossen, das verlangt
+^8.3), dazu Pint als Prüfung, addon-lint als Gate und PHPStan. Der Testlauf ist `vendor/bin/pest`,
+nicht phpunit: die Steuerregeln sind in Pest-Syntax geschrieben, und Pest lässt PHPUnit-Klassen
+nur mitlaufen, wenn es selbst der Runner ist. Kein `dist`-Job, es gibt kein Control-Panel-Bundle.
+
+### Werkzeug
+
+- **Larastan** in `require-dev`, `phpstan.neon` auf Level 5 über `src/`. Die Insights-Metriken
+  extenden eine Klasse aus einem Addon, das nur `suggest` ist; die Stand-ins unter `tests/Fakes/`
+  werden deshalb gescannt, nicht analysiert. Die Baseline trägt zwei Einträge, beide `view-string`
+  auf `invoices::…`-Views: Larastan prüft, ob die View existiert, und kennt den Addon-Namespace im
+  Analyse-Kontext nicht. `InvoiceCounter` hat jetzt die `@property`-Zeilen, die PHPStan brauchte.
+- **Pint** nimmt `tests/Fakes/insights-contracts.php` aus. Die Datei ist eine byte-getreue Kopie
+  der Signaturen aus statamic-insights; ein Formatierer darauf würde genau die Eigenschaft
+  zerstören, die ihren Wert ausmacht.
+- **`.gitattributes`** mit `export-ignore` für Tests, CI und Werkzeugkonfiguration; eine Site, die
+  das Addon installiert, lädt sie nicht mehr mit.
+- **`addon-lint.json`** waivt zwei Regeln mit Begründung: `release.readme` (die Regel sucht
+  Überschriftenwörter wie „Usage"; die README erklärt die Nutzung unter „The number", „The PDF",
+  „Sending it to the buyer") und `testing.addon-testcase` (die Testbasis ist absichtlich von Hand
+  gebaut, siehe `tests/TestCase.php`; der Umbau auf `AddonTestCase` ist ein eigener Schritt).
+  Lint-Score 79 → 100.
+
+### Tests gegen statamic-payments 1.17
+
+Zwei Tests setzten stillschweigend payments 1.11 voraus, den Stand des lokalen `vendor/`. Gegen
+1.17.1, was `^1.14` heute auflöst, fielen sie:
+
+- `InsightsMetricsTest` verglich die **gesamte** Metrik-Registry mit den vier eigenen Einträgen.
+  payments trägt seit 1.14 selbst Metriken ein. Jetzt werden nur die `invoices.`-Handles verglichen.
+- `TheBrandComesFromThePaymentTest` prüfte eine Installation, deren `payments`-Tabelle noch keine
+  `brand_id`-Spalte hat. Diesen Zustand schließt `^1.14` seit 048fde2 aus (die Spalte kam mit 1.13),
+  und payments 1.17 setzt sie beim Anlegen selbst; der Test bewies nur noch, dass man in eine
+  gelöschte Spalte nicht schreiben kann. Entfernt, mit Vermerk an der Stelle.
+
 ## 1.3.0 — 2026-09-02
 
 ### Die Rechnungs-Mail steht im Kommunikationsprotokoll der Zahlung
