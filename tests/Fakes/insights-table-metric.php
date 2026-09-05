@@ -265,6 +265,10 @@ abstract class TableMetric implements Metric
      * them twice, and one that invented a bucket outside the range would draw
      * a column the axis has no place for.
      *
+     * Ordered by the bucket, explicitly. `GROUP BY` promises no order: SQLite
+     * happens to hand the groups back sorted, MySQL 8 does not, and a series
+     * whose keys arrive out of order draws a line that jumps back in time.
+     *
      * @return array<string, int|float>
      */
     protected function bucketed(Builder $rows, MetricQuery $query, string $aggregate, ?string $column = null): array
@@ -272,6 +276,7 @@ abstract class TableMetric implements Metric
         return $rows
             ->selectRaw($this->bucketExpression($query, $column).' as bucket, '.$aggregate.' as measured')
             ->groupBy('bucket')
+            ->orderBy('bucket')
             ->pluck('measured', 'bucket')
             ->all();
     }
