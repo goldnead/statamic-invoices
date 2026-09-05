@@ -256,6 +256,25 @@ class InsightsMetricsTest extends TestCase
         return $keyed;
     }
 
+    /**
+     * Whether a split comes back largest first.
+     *
+     * That is the whole promise about order — which of two rows carrying the
+     * same figure comes first is the base class's business (it breaks the tie
+     * by the key so the screen stops jumping), not something a metric here has
+     * to state.
+     *
+     * @param  array<int, array<string, mixed>>  $zeilen
+     */
+    protected function werteFallen(array $zeilen): bool
+    {
+        $werte = array_column($zeilen, 'value');
+        $sortiert = $werte;
+        rsort($sortiert);
+
+        return $werte === $sortiert;
+    }
+
     // -- The four numbers ---------------------------------------------------
 
     /**
@@ -566,10 +585,17 @@ class InsightsMetricsTest extends TestCase
 
         $zeilen = (new Tax)->breakdown($this->frage(), 'tax_rate_bp');
 
-        $this->assertSame(
+        // The figures per rate, and not the order in which the two zero rows
+        // arrive: 19 % netted back to nothing and the zero rate was zero all
+        // along, so which of the two the database hands over first said
+        // nothing about this addon. Largest first is checked separately below,
+        // because that is the part a screen depends on.
+        $this->assertEquals(
             ['700' => 140, '750' => 19, '1900' => 0, '0' => 0],
             $this->nachSchluessel($zeilen),
         );
+
+        $this->assertTrue($this->werteFallen($zeilen), 'the split has to come back largest first');
 
         $this->assertSame(159, array_sum(array_column($zeilen, 'value')), 'the rates have to add up to the tax figure');
 

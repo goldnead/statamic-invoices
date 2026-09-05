@@ -303,6 +303,19 @@ abstract class TableMetric implements Metric
             ->selectRaw($column.' as split_key, '.$aggregate.' as measured')
             ->groupBy($column)
             ->orderByRaw($aggregate.' desc')
+            // Zweites Sortierkriterium, damit die Reihenfolge eine ist.
+            //
+            // Ohne das entscheidet bei *gleicher* Kennzahl die Datenbank, und
+            // sie entscheidet je nach Treiber anders: dieselben zwei Zeilen
+            // kamen unter SQLite in der einen und unter MySQL in der anderen
+            // Ordnung zurueck. Auf dem Schirm heisst das eine Liste, die ohne
+            // Grund springt; in einer Suite heisst es gruen auf dem Laptop und
+            // rot in der CI (statamic-events, 05.09.2026).
+            //
+            // `$limit` macht es mehr als kosmetisch: bei einem Gleichstand an
+            // der Abschneidekante haengt sonst vom Treiber ab, *welche* Zeile
+            // ueberhaupt zurueckkommt.
+            ->orderBy($column)
             ->limit($limit)
             ->get()
             ->map(fn ($row) => [
