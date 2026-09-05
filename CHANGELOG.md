@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.4.0 — 2026-09-05
+## 2.0.0 — 2026-09-05
+
+**Zwei Verhaltensänderungen, die eine bestehende Installation treffen — deshalb die Hauptversion.**
+Beide stehen unten, mit dem Weg zurück. Wer EU-B2B-Kunden hat, liest zuerst den Abschnitt „eine
+formal geprüfte Nummer stellt nicht mehr steuerfrei" und lässt danach einmal
+`php artisan invoices:pending-invoices` laufen: dort steht, welche bezahlte Zahlung ohne Beleg
+geblieben ist. Als Minor getaggt hätte diese Änderung sich als Logzeile bemerkbar gemacht, und
+zwar erst nachdem das Geld geflossen war.
 
 Drei Steuerzonen, eine echte USt-IdNr.-Prüfung und ein Tor vor dem Checkout. Anlass ist der
 Verkauf der Addon-Suite ins Ausland: an Unternehmen, überwiegend außerhalb Deutschlands, über
@@ -97,6 +104,22 @@ das Kommando nie anfasst, und umgekehrt.
 `tax.business_only.enabled` tut jetzt, was der Kommentar daneben immer versprach: auf `false` hört
 das Tor auf, Verbraucher abzuweisen. Vorher las das Tor nur `require_company`, und der Schalter war
 wirkungslos, ohne das zu sagen.
+
+### Der Beleg nennt die Firma
+
+Das Tor verlangt einen Firmennamen, und der kam bisher nicht weiter als bis zum Tor: auf der
+Rechnung stand, wer das Formular ausgefüllt hat. § 14 Abs. 4 Nr. 1 UStG will den Leistungsempfänger
+genannt haben, und das ist bei einem Geschäftskauf die Firma — sonst kann die Buchhaltung des
+Käufers den Beleg nicht gegen sein Unternehmen buchen, was der Grund war, die USt-IdNr. überhaupt
+anzugeben. Die Person geht nicht verloren, sie steht als `meta.buyer_contact` am Beleg.
+
+### Gefragt wird nur, wo die Antwort etwas entscheidet
+
+Inlands- und Drittlandsnummern gehen nicht mehr an VIES. Bei einem deutschen Käufer entscheidet die
+Bestätigung steuerlich nichts, kostet aber im Ausfall etwas Echtes: die Rechnung trüge `pending` und
+stünde dauerhaft auf der Prüfliste. Und VIES kennt nur EU-Nummern — eine US-Steuernummer dorthin zu
+schicken heißt, eine Antwort auf eine Frage zu bekommen, die niemand gestellt hat. Beide Nummern
+stehen weiter auf dem Beleg, jetzt mit dem Vermerk „USt-IdNr. angegeben, nicht bestätigt".
 
 ### Neue Konfiguration
 

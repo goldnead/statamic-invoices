@@ -67,13 +67,16 @@ class RequireBusinessBuyer
             ], 422);
         }
 
-        // 422 for a form post as well, not a 302 that reads as success in a log.
-        // The errors bag is what a Blade checkout renders; the status code is what
-        // an uptime check and a test see, and the two should agree.
+        // A plain 302 back, exactly as Laravel's own validation answers a form post.
+        // The first attempt here set 422 on the redirect, on the reasoning that a
+        // refusal should not read as success in a log. It reads as nothing at all to
+        // a browser: a 422 carrying a Location header is not followed, the buyer gets
+        // a blank page, and the flashed message they need in order to fix the field
+        // sits in the session until they navigate somewhere by hand. The message
+        // reaching the buyer is the point; the status code is not worth losing it for.
         return back()
             ->withInput($request->except(['vat_id_check']))
-            ->withErrors([$this->fieldFor($verdict->code) => (string) $verdict->message])
-            ->setStatusCode(422);
+            ->withErrors([$this->fieldFor($verdict->code) => (string) $verdict->message]);
     }
 
     /**

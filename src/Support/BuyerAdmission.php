@@ -113,8 +113,14 @@ final class BuyerAdmission
 
         // Domestic. § 19 answers, no number is needed, and asking for one would be
         // asking for evidence that changes nothing.
+        //
+        // So it is not asked. A confirmation here decides nothing about the tax, and
+        // it costs something real when it fails: an outage would freeze `pending`
+        // onto a domestic invoice and put it on the outstanding list for good, for a
+        // question nobody had. The number still goes on the document, unverified and
+        // saying so.
         if ($country === $merchantCountry) {
-            return Admission::admit(TaxZone::Domestic, $vatId === null ? null : $this->check($vatId));
+            return Admission::admit(TaxZone::Domestic, $this->unverified($vatId));
         }
 
         if ($rules->isEuMemberState($country)) {
@@ -128,7 +134,23 @@ final class BuyerAdmission
             );
         }
 
-        return Admission::admit(TaxZone::ThirdCountryBusiness, $vatId === null ? null : $this->check($vatId));
+        // Same reasoning outside the EU, plus a stronger one: VIES only knows EU
+        // numbers. Sending it a US or Swiss tax number gets an answer about a
+        // question it was never asked — most likely "invalid", which would then sit
+        // frozen on an invoice as a verdict nobody is entitled to.
+        return Admission::admit(TaxZone::ThirdCountryBusiness, $this->unverified($vatId));
+    }
+
+    /**
+     * A number that is recorded but deliberately not confirmed.
+     *
+     * `unchecked` rather than null, because the two are different facts: null means
+     * there was nothing to check, this means there was and we chose not to. The
+     * invoice says as much, and nothing later mistakes it for a confirmation.
+     */
+    private function unverified(?string $vatId): ?VatIdCheck
+    {
+        return $vatId === null ? null : VatIdCheck::unchecked($vatId);
     }
 
     /**
@@ -152,6 +174,9 @@ final class BuyerAdmission
         }
 
         if ($rules->isEuMemberState($country)) {
+            // Same three conditions as the strict path, asked in the same order, so
+            // switching the rule off changes who may buy and never what their invoice
+            // says.
             return $vatId !== null
                 && $rules->isPlausibleVatId($vatId)
                 && $rules->vatIdCountry($vatId) === $country

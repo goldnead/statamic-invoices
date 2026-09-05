@@ -121,6 +121,51 @@ class OutstandingVatChecksTest extends TestCase
     }
 
     #[Test]
+    public function an_eu_invoice_nobody_ever_asked_about_does_appear(): void
+    {
+        // The class that used to be invisible: a number on a reverse-charge document
+        // with no verdict behind it at all — an older invoice, or a payment that
+        // reached the writer past the checkout. Nothing counted those, so nothing
+        // knew they existed.
+        $this->offeneRechnung([
+            'number' => 'RE2026-09-004',
+            'buyer_vat_id_status' => null,
+            'buyer_vat_id_service' => null,
+        ]);
+
+        $this->assertStringContainsString('RE2026-09-004', $this->bildschirm());
+    }
+
+    #[Test]
+    public function a_number_that_is_deliberately_never_confirmed_stays_off_the_list(): void
+    {
+        // Domestic and third-country numbers are recorded and not checked, on
+        // purpose. Putting them on a list of outstanding work would fill it with
+        // rows nobody can ever close, and a list like that stops being read.
+        $this->offeneRechnung([
+            'number' => 'RE2026-09-005',
+            'buyer_country' => 'DE',
+            'buyer_vat_id' => 'DE987654321',
+            'tax_zone' => 'de',
+            'buyer_vat_id_status' => VatIdStatus::Unchecked->value,
+        ]);
+
+        $this->offeneRechnung([
+            'number' => 'RE2026-09-006',
+            'buyer_country' => 'US',
+            'buyer_vat_id' => 'US123456789',
+            'tax_zone' => 'third-country-b2b',
+            'buyer_vat_id_status' => VatIdStatus::Unchecked->value,
+        ]);
+
+        $bildschirm = $this->bildschirm();
+
+        $this->assertStringNotContainsString('RE2026-09-005', $bildschirm);
+        $this->assertStringNotContainsString('RE2026-09-006', $bildschirm);
+        $this->assertStringContainsString('Nichts offen', $bildschirm);
+    }
+
+    #[Test]
     public function a_confirmed_invoice_does_not_appear_either(): void
     {
         $this->offeneRechnung([

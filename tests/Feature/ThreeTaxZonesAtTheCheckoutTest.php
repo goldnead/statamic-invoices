@@ -145,6 +145,94 @@ class ThreeTaxZonesAtTheCheckoutTest extends TestCase
         $this->assertStringNotContainsString('verification pending', $this->beleg($rechnung));
     }
 
+    #[Test]
+    public function the_invoice_is_made_out_to_the_company_not_to_whoever_typed(): void
+    {
+        // § 14 Abs. 4 Nr. 1 UStG wants the recipient of the supply named. The gate
+        // insists on a company name, and for a while that name got no further than
+        // the gate: the document went out to the person who filled in the form, and
+        // the buyer's accountant could not book it against their business.
+        $this->kaufen(['country' => 'DE', 'company' => 'Chorwerk GmbH'])->assertOk();
+
+        $rechnung = Invoice::firstOrFail();
+
+        $this->assertSame('Chorwerk GmbH', $rechnung->buyer_name);
+        $this->assertStringContainsString('Chorwerk GmbH', $this->beleg($rechnung));
+
+        // And the person is not lost, they are just not the recipient.
+        $this->assertSame('Bärbel Öztürk-Weiß', $rechnung->meta['buyer_contact'] ?? null);
+    }
+
+    #[Test]
+    public function a_buyer_without_a_company_name_does_not_buy(): void
+    {
+        // "Businesses only" with a blank company field is a claim nobody checked.
+        $this->kaufen(['country' => 'DE'])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'company_missing');
+
+        $this->assertSame(0, Payment::count());
+    }
+
+    #[Test]
+    public function a_domestic_vat_id_is_recorded_and_deliberately_not_confirmed(): void
+    {
+        // It decides nothing about the tax here, and asking costs something real:
+        // an outage would freeze "pending" onto a domestic invoice and leave it on
+        // the outstanding list for a question nobody had.
+        Http::fake();
+
+        $this->kaufen([
+            'country' => 'DE',
+            'company' => 'Chorwerk GmbH',
+            'vat_id' => 'DE987654321',
+        ])->assertOk();
+
+        Http::assertNothingSent();
+
+        $rechnung = Invoice::firstOrFail();
+
+        $this->assertSame('DE987654321', $rechnung->buyer_vat_id);
+        $this->assertSame(VatIdStatus::Unchecked->value, $rechnung->buyer_vat_id_status);
+        // Said out loud on the document: unconfirmed must not look like confirmed by
+        // both of them saying nothing.
+        $this->assertStringContainsString('nicht bestätigt', $this->beleg($rechnung));
+    }
+
+    #[Test]
+    public function a_third_country_tax_number_is_never_sent_to_the_eu_service(): void
+    {
+        // VIES only knows EU numbers. Asking it about a US one gets an answer to a
+        // question it was never asked — most likely "invalid", which would then sit
+        // frozen on an invoice as a verdict nobody is entitled to.
+        Http::fake();
+
+        $this->kaufen([
+            'country' => 'US',
+            'company' => 'Austin Web Co',
+            'business_confirmed' => true,
+            'vat_id' => 'US12-3456789',
+        ])->assertOk();
+
+        Http::assertNothingSent();
+
+        $this->assertSame(VatIdStatus::Unchecked->value, Invoice::firstOrFail()->buyer_vat_id_status);
+    }
+
+    #[Test]
+    public function a_form_post_is_sent_back_with_the_message_the_buyer_needs(): void
+    {
+        // Not a 422 carrying a Location header: a browser does not follow that, the
+        // buyer gets a blank page, and the message that tells them what to fix sits
+        // in the session until they navigate somewhere by hand.
+        $antwort = $this->post('/test-checkout', ['country' => 'AT', 'company' => 'Wiener Werkstatt GmbH']);
+
+        $antwort->assertRedirect();
+        $antwort->assertSessionHasErrors(['vat_id']);
+
+        $this->assertSame(0, Payment::count());
+    }
+
     // ── Case 2: an EU business with a confirmed number ───────────────────────
 
     #[Test]

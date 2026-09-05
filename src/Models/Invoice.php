@@ -116,11 +116,19 @@ class Invoice extends Model
      * or a command that revisits rows the list never shows, is two definitions of
      * "outstanding" that drift apart in silence.
      *
-     * Three states qualify, and a fourth deliberately does not. `pending`: asked,
-     * no answer. `unchecked` and a null status: a number is on the document and
-     * nobody asked — an older invoice, a payment that reached the writer past the
-     * checkout, or a status a later release wrote and this one cannot read. A
-     * confirmed number is done; an invoice without a number has nothing to ask about.
+     * Two cases, and the second is the one that is easy to miss.
+     *
+     * `pending` anywhere: a check was attempted and left hanging. And any invoice in
+     * the `eu-b2b` zone whose number was never asked about at all — an older
+     * document, a payment that reached the writer past the checkout, or a status a
+     * later release wrote and this one cannot read. That zone is the only one where a
+     * confirmation carries the tax treatment, which is why it is also the only one
+     * where "nobody asked" is outstanding work.
+     *
+     * Everything else stays off: a confirmed number is done, a domestic or
+     * third-country number is deliberately never confirmed, and an invoice without a
+     * number has nothing to ask about. A list that also showed those would be a list
+     * nobody finishes reading.
      *
      * @param  Builder<self>  $query
      */
@@ -130,8 +138,11 @@ class Invoice extends Model
             ->whereNotNull('buyer_vat_id')
             ->where(fn ($q) => $q
                 ->where('buyer_vat_id_status', VatIdStatus::Pending->value)
-                ->orWhere('buyer_vat_id_status', VatIdStatus::Unchecked->value)
-                ->orWhereNull('buyer_vat_id_status'));
+                ->orWhere(fn ($nieGefragt) => $nieGefragt
+                    ->where('tax_zone', TaxZone::EuBusiness->value)
+                    ->where(fn ($ohneUrteil) => $ohneUrteil
+                        ->whereNull('buyer_vat_id_status')
+                        ->orWhere('buyer_vat_id_status', VatIdStatus::Unchecked->value))));
     }
 
     /**

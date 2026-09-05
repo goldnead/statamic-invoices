@@ -94,6 +94,11 @@
         <span>{{ $bestaetigt }}</span>
     @elseif($pruefstand === \Goldnead\Invoices\Support\VatIdStatus::Pending)
         <span>USt-IdNr. angegeben, Bestätigung ausstehend. VAT ID provided, verification pending.</span>
+    @elseif($pruefstand === \Goldnead\Invoices\Support\VatIdStatus::Unchecked)
+        {{-- Auch das gehoert hin. Ohne diese Zeile sieht eine ungeprüfte Nummer
+             genauso aus wie eine bestaetigte, naemlich wie gar nichts — und wer den
+             Beleg liest, kann die beiden nicht unterscheiden. --}}
+        <span>USt-IdNr. angegeben, nicht bestätigt. VAT ID provided, not verified.</span>
     @endif
 </div>
 

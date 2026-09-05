@@ -114,7 +114,17 @@ class InvoiceWriter
                 'kind' => Invoice::KIND_INVOICE,
                 'issued_at' => $issuedAt,
                 'currency' => $payment->currency,
-                'buyer_name' => $payment->name,
+                // The company when there is one, the person otherwise.
+                //
+                // § 14 Abs. 4 Nr. 1 UStG wants the recipient of the supply named, and
+                // for a business sale that is the company — not whoever filled in the
+                // form. A reverse-charge invoice made out to a natural person is one
+                // the buyer's own accountant cannot book against their business, which
+                // is the whole reason they gave a VAT ID.
+                //
+                // The person is not lost: they go into the invoice's meta below, as a
+                // contact rather than as the recipient.
+                'buyer_name' => $this->buyerName($payment),
                 'buyer_email' => $payment->email,
                 'buyer_country' => $payment->country,
                 'buyer_vat_id' => $payment->meta['vat_id'] ?? null,
@@ -131,7 +141,10 @@ class InvoiceWriter
                 // Nicht fuer den Kaeufer, fuer die Pruefung: was der Rechner an
                 // dieser Entscheidung fuer zweifelhaft hielt, steht am Beleg,
                 // nicht nur in einem Log, das rotiert.
-                'meta' => $hinweise === [] ? null : ['tax_notes' => $hinweise],
+                'meta' => ($meta = array_filter([
+                    ...($hinweise === [] ? [] : ['tax_notes' => $hinweise]),
+                    ...$this->buyerContact($payment),
+                ])) === [] ? null : $meta,
             ]);
 
             InvoiceItem::whileWriting(function () use ($invoice, $zeilen) {
@@ -500,6 +513,41 @@ class InvoiceWriter
      * which is the thing the 25.08. rule forbids. The checkout asks, because that
      * is where a buyer can still be told to fix a typo.
      */
+    /**
+     * Who the document is made out to.
+     *
+     * The company if the checkout collected one, otherwise the name on the payment.
+     * Not both in one string: "Company, z. Hd. Person" reads fine and turns the one
+     * mandatory particular into a sentence that a machine reading the invoice has to
+     * take apart again.
+     */
+    protected function buyerName(Payment $payment): ?string
+    {
+        $company = is_array($payment->meta) ? ($payment->meta['company'] ?? null) : null;
+
+        return is_string($company) && trim($company) !== '' ? trim($company) : $payment->name;
+    }
+
+    /**
+     * The person who placed the order, when they are not the recipient.
+     *
+     * Kept on the document because "who ordered this" is a question somebody asks
+     * about an invoice, and dropping it would mean going back to the payment to
+     * answer it — which is exactly the lookup this addon avoids everywhere else.
+     *
+     * @return array<string, mixed>
+     */
+    protected function buyerContact(Payment $payment): array
+    {
+        $name = $payment->name;
+
+        if (! is_string($name) || trim($name) === '' || $this->buyerName($payment) === $name) {
+            return [];
+        }
+
+        return ['buyer_contact' => trim($name)];
+    }
+
     protected function vatIdCheck(Payment $payment): ?VatIdCheck
     {
         return is_array($payment->meta)

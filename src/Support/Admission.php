@@ -45,18 +45,4 @@ final class Admission
     {
         return ! $this->admitted;
     }
-
-    /**
-     * What a checkout puts on the payment so nothing is asked twice.
-     *
-     * Only the frozen check travels, under one key. The zone is deliberately not
-     * stored: it is derived from country and check, and a stored copy of a derived
-     * value is a second truth that can drift from the first.
-     *
-     * @return array<string, mixed>
-     */
-    public function forPaymentMeta(): array
-    {
-        return $this->check === null ? [] : ['vat_id_check' => $this->check->toArray()];
-    }
 }

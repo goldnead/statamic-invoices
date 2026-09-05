@@ -64,8 +64,12 @@ class VatIdCheckRecord extends Model
      */
     public function contradicts(Invoice $invoice): bool
     {
+        // Any invoice that does not already carry a confirmation. The first version
+        // asked for `pending` alone, which quietly excluded the older rows the list
+        // deliberately pulls in — an invoice whose number nobody ever checked and
+        // which now comes back invalid is the same problem, minus the excuse.
         return $this->verdict() === VatIdStatus::Invalid
-            && $invoice->vatIdStatus() === VatIdStatus::Pending;
+            && $invoice->vatIdStatus() !== VatIdStatus::Valid;
     }
 
     /** @return array<string, mixed> */

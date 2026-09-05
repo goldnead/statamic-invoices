@@ -59,4 +59,10 @@
             </ui-table>
         </ui-card>
     </ui-panel>
+
+    @if($invoices->hasPages())
+        {{-- Ohne diese Zeile endet die Liste bei fünfzig, während oben eine höhere
+             Zahl steht: nichts sieht kaputt aus, und der Rest ist unerreichbar. --}}
+        <div class="mt-4">{{ $invoices->links() }}</div>
+    @endif
 @endif
