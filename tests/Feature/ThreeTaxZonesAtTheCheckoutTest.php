@@ -587,6 +587,23 @@ class ThreeTaxZonesAtTheCheckoutTest extends TestCase
      */
     protected function defineWebRoutes($router): void
     {
+        // The sibling's webhook route, if nobody else has it.
+        //
+        // `Checkout::start` builds the callback URL from this name before it calls
+        // the provider. The sibling registers it through Statamic's addon boot,
+        // which only runs once the addon manifest resolves the package — and that
+        // resolution reads a composer.lock the test harness copies into place. It is
+        // therefore present on a machine that has run the suite before and absent on
+        // a fresh checkout, which is exactly the shape of failure that passes locally
+        // and fails in CI.
+        //
+        // Standing in for it here keeps the subject of these tests the gate in front
+        // of the checkout, rather than the sibling's registration order.
+        if (! Route::has('statamic-payments.webhook')) {
+            Route::post('/test-webhook', fn () => response()->noContent())
+                ->name('statamic-payments.webhook');
+        }
+
         Route::post('/test-checkout', function (Request $request) {
             $ergebnis = app(Checkout::class)->start(
                 products: 'kurs',
