@@ -11,7 +11,11 @@ use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Models\InvoiceItem;
 use Goldnead\Invoices\Support\NumberSeries;
+use Goldnead\Invoices\Support\TaxResult;
 use Goldnead\Invoices\Support\TaxRules;
+use Goldnead\Invoices\Support\TaxZone;
+use Goldnead\Invoices\Support\VatIdCheck;
+use Goldnead\Invoices\Support\VatIdStatus;
 use Goldnead\StatamicPayments\Models\Payment;
 use Goldnead\StatamicPayments\Support\Catalogue;
 use Illuminate\Support\Carbon;
@@ -115,6 +119,9 @@ class InvoiceWriter
                 'buyer_country' => $payment->country,
                 'buyer_vat_id' => $payment->meta['vat_id'] ?? null,
                 'buyer_address' => $payment->meta['address'] ?? null,
+                // What was known about that number when this document was written,
+                // and nothing that would have to be looked up to read it later.
+                ...$this->vatIdColumns($payment, $zeilen),
                 'seller' => $this->seller($brandId),
                 'net_cent' => array_sum(array_column($zeilen, 'net_cent')),
                 'tax_cent' => array_sum(array_column($zeilen, 'tax_cent')),
@@ -235,6 +242,15 @@ class InvoiceWriter
                 'buyer_country' => $original->buyer_country,
                 'buyer_vat_id' => $original->buyer_vat_id,
                 'buyer_address' => $original->buyer_address,
+                // Copied off the original, never looked up again. A credit note
+                // reverses what the invoice said, including what was known about
+                // the number at the time — a fresh answer here would produce two
+                // documents about one purchase that disagree with each other.
+                'tax_zone' => $original->tax_zone,
+                'buyer_vat_id_status' => $original->buyer_vat_id_status,
+                'buyer_vat_id_checked_at' => $original->buyer_vat_id_checked_at,
+                'buyer_vat_id_service' => $original->buyer_vat_id_service,
+                'buyer_vat_id_reference' => $original->buyer_vat_id_reference,
                 'seller' => $original->seller,
                 'net_cent' => $original->net_cent,
                 'tax_cent' => $original->tax_cent,
@@ -327,6 +343,12 @@ class InvoiceWriter
             productHandle: $this->taxHandle($handle),
             buyerCountry: $payment->country,
             buyerVatId: is_array($payment->meta) ? ($payment->meta['vat_id'] ?? null) : null,
+            // The verdict the checkout froze onto the payment, not a fresh lookup.
+            // Asking VIES again here would let a document written today and one
+            // rewritten next year disagree about the same purchase — and the second
+            // answer is not the one the seller relied on.
+            vatIdStatus: $this->vatIdCheck($payment)?->status,
+            buyerIsBusiness: $this->buyerIsBusiness($payment),
             // Nicht `?? true`. Ob eine Leistung digital oder koerperlich ist,
             // entscheidet ueber Reverse Charge gegen innergemeinschaftliche
             // Lieferung und ueber "nicht steuerbar" gegen Ausfuhr — vier
@@ -470,6 +492,89 @@ class InvoiceWriter
      * reverse charge, intra-community supply, outside scope, export — and
      * guessing produces a wrong one on an immutable document.
      */
+    /**
+     * The confirmation the checkout froze onto the payment, if there was one.
+     *
+     * Read, never made. This class writes a document; asking a foreign server
+     * mid-write is how an invoice ends up depending on somebody else's uptime,
+     * which is the thing the 25.08. rule forbids. The checkout asks, because that
+     * is where a buyer can still be told to fix a typo.
+     */
+    protected function vatIdCheck(Payment $payment): ?VatIdCheck
+    {
+        return is_array($payment->meta)
+            ? VatIdCheck::fromArray($payment->meta['vat_id_check'] ?? null)
+            : null;
+    }
+
+    /**
+     * Did the buyer say they were buying as a business?
+     *
+     * Only consulted outside the EU, where there is no register to ask. Inside
+     * it the VAT ID is the evidence and this flag would be a way to talk past it.
+     */
+    protected function buyerIsBusiness(Payment $payment): bool
+    {
+        if (! is_array($payment->meta)) {
+            return false;
+        }
+
+        return (bool) ($payment->meta['business_confirmed'] ?? false);
+    }
+
+    /**
+     * The five columns that say what was known, and which case this document is.
+     *
+     * The zone comes off the mechanism the rules landed on rather than off the
+     * country, because the country alone does not distinguish a business from a
+     * consumer — and those two get different documents in the same country.
+     *
+     * @param  list<array<string, mixed>>  $zeilen
+     * @return array<string, mixed>
+     */
+    protected function vatIdColumns(Payment $payment, array $zeilen): array
+    {
+        $check = $this->vatIdCheck($payment);
+        $mechanism = $zeilen[0]['tax_mechanism'] ?? null;
+
+        $zone = match ($mechanism) {
+            TaxResult::MECHANISM_REVERSE_CHARGE, TaxResult::MECHANISM_INTRA_COMMUNITY_SUPPLY => TaxZone::EuBusiness,
+            TaxResult::MECHANISM_OUTSIDE_SCOPE, TaxResult::MECHANISM_EXPORT => TaxZone::ThirdCountryBusiness,
+            // Everything else is a domestic document — but only if the buyer is
+            // actually here. A consumer abroad has no zone in this model, and
+            // labelling one "de" would be the invoice claiming a case it is not.
+            default => $this->isDomestic($payment) ? TaxZone::Domestic : null,
+        };
+
+        // A buyer VAT ID with no frozen check is written as `unchecked`, never as
+        // null. The two look the same on a document and are not the same fact:
+        // null means there was no number to ask about, `unchecked` means there was
+        // one and nobody asked. Only the second is a thing somebody should see —
+        // and a column that stays null is a class of invoice no report can count,
+        // because no report knows to look for it.
+        $gegebeneNummer = is_array($payment->meta) ? ($payment->meta['vat_id'] ?? null) : null;
+
+        $status = $check !== null
+            ? $check->status
+            : (is_string($gegebeneNummer) && trim($gegebeneNummer) !== '' ? VatIdStatus::Unchecked : null);
+
+        return [
+            'tax_zone' => $zone?->value,
+            'buyer_vat_id_status' => $status?->value,
+            'buyer_vat_id_checked_at' => $check?->checkedAt,
+            'buyer_vat_id_service' => $check?->service,
+            'buyer_vat_id_reference' => $check?->requestId,
+        ];
+    }
+
+    protected function isDomestic(Payment $payment): bool
+    {
+        $merchant = config('invoices.tax.merchant_country', 'DE');
+        $merchant = is_string($merchant) ? strtoupper($merchant) : 'DE';
+
+        return is_string($payment->country) && strtoupper($payment->country) === $merchant;
+    }
+
     protected function isDigital(?string $handle): bool
     {
         $product = $this->product($handle);

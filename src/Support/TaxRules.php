@@ -137,6 +137,12 @@ final class TaxRules
         'zones' => [],
         'oss' => ['destination_taxation' => false],
         'eu_member_states' => null,
+        // Read by BuyerAdmission and the console command, not by this class: the
+        // confirmation is a network call and this is a calculation. They are listed
+        // here so the constructor stops refusing them as unknown keys, and so the
+        // whole tax block has one place that names everything it may contain.
+        'vat_id_check' => ['enabled' => true, 'service' => 'vies', 'timeout' => 8, 'cache_hours' => 168],
+        'business_only' => ['enabled' => true, 'require_company' => true],
         'texts' => [
             'small_business' => 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
             'small_business_eu' => 'Steuerfrei nach der EU-Kleinunternehmerregelung, § 19a UStG.',
@@ -145,6 +151,18 @@ final class TaxRules
             'export' => 'Steuerfreie Ausfuhrlieferung.',
             'outside_scope' => 'Nicht im Inland steuerbar; der Leistungsort liegt im Land des Empfängers.',
             'zero_rate' => 'Kein Umsatzsteuerausweis.',
+        ],
+        // The same sentences in English, appended to the German ones on the two
+        // zones a foreign business sees. Not a translation layer: § 14a Abs. 1 UStG
+        // prescribes the German phrase, so the German phrase stays and the English
+        // one follows it. A buyer in Lisbon has to be able to act on the document
+        // without translating it first, and their accountant reads the English half.
+        // An empty string leaves the German sentence alone.
+        'texts_en' => [
+            'reverse_charge' => 'Reverse charge: the recipient is liable for the VAT.',
+            'intra_community_supply' => 'Tax-exempt intra-community supply.',
+            'outside_scope' => 'Not taxable in Germany; the place of supply is the customer\'s country.',
+            'export' => 'Tax-exempt export.',
         ],
         'legal_bases' => [
             'small_business' => '§ 19 UStG',
@@ -263,6 +281,11 @@ final class TaxRules
      * @param  string|null  $buyerVatId  the buyer's VAT ID, including the country prefix
      * @param  bool  $isDigital  a digital supply (true) or physical goods (false)
      * @param  array<string, mixed>|null  $config  overrides the Laravel config
+     * @param  VatIdStatus|null  $vatIdStatus  the frozen verdict of the confirmation
+     *                                         service, when one was asked. Null means nobody asked, and the class
+     *                                         then says exactly that on the document.
+     * @param  bool  $buyerIsBusiness  the buyer declared they are buying as a business.
+     *                                 Only used outside the EU, where there is no register to ask.
      */
     public static function for(
         string $productHandle,
@@ -270,12 +293,16 @@ final class TaxRules
         ?string $buyerVatId = null,
         bool $isDigital = false,
         ?array $config = null,
+        ?VatIdStatus $vatIdStatus = null,
+        bool $buyerIsBusiness = false,
     ): TaxResult {
         return self::fromConfig($config)->resolve(
             productHandle: $productHandle,
             buyerCountry: $buyerCountry,
             buyerVatId: $buyerVatId,
             isDigital: $isDigital,
+            vatIdStatus: $vatIdStatus,
+            buyerIsBusiness: $buyerIsBusiness,
         );
     }
 
@@ -287,8 +314,39 @@ final class TaxRules
         ?string $buyerCountry = null,
         ?string $buyerVatId = null,
         bool $isDigital = false,
+        ?VatIdStatus $vatIdStatus = null,
+        bool $buyerIsBusiness = false,
     ): TaxResult {
         $notes = [];
+
+        // ── The three zones of a business-only seller ────────────────────────────
+        // Before everything else, § 19 included, and that ordering is the point.
+        //
+        // § 19 UStG is a domestic rule. A supply to a business in another country is
+        // taxed where that business sits (§ 3a Abs. 2 UStG) and is not taxable in
+        // Germany at all — so there is no German exemption to invoke and no § 19 note
+        // to print. The earlier reading had § 19 answer first and merely warn about
+        // the case; that produced a document saying "no VAT under § 19" where
+        // § 14a Abs. 1 UStG wants "Steuerschuldnerschaft des Leistungsempfängers",
+        // which is the note the buyer needs in order to account for it at home.
+        // Derivation: TASKS/suite-steuer-selbsteinschaetzung-2026-09-05.md, question (b).
+        //
+        // It only takes effect once somebody has actually established that the buyer
+        // is a business — a confirmed VAT ID inside the EU, a declaration outside it.
+        // Without that evidence this returns null and the old path answers, so a
+        // format-only VAT ID changes nothing about how an invoice reads today.
+        $crossBorder = $this->crossBorderBusiness(
+            productHandle: $productHandle,
+            buyerCountry: $buyerCountry,
+            buyerVatId: $buyerVatId,
+            isDigital: $isDigital,
+            vatIdStatus: $vatIdStatus,
+            buyerIsBusiness: $buyerIsBusiness,
+        );
+
+        if ($crossBorder !== null) {
+            return $crossBorder;
+        }
 
         // NOT asked here, and the first attempt was wrong to.
         //
@@ -550,6 +608,41 @@ final class TaxRules
         // Cross-border only: a German VAT ID on a German buyer shifts nothing, that line
         // carries ordinary tax.
         if ($isBusiness && ! $isDomestic && $this->isEuMemberState($country)) {
+            // Reaching this branch means the confirmation did not hold: no verdict was
+            // handed in, or it was "invalid". The number matched a pattern and nothing
+            // more — and a pattern is not evidence that a business exists.
+            //
+            // Zero-rating it anyway is the failure this whole ticket is about. It does
+            // not look like a failure: the document comes out with the prescribed
+            // § 14a note and a plausible-looking number, and the only sign that nobody
+            // ever asked is a sentence in the notes saying the format was checked.
+            // A tax office reading that document reads a claim the seller cannot back.
+            //
+            // So it is refused rather than guessed, the same way a missing country and
+            // a missing tax class are refused. Switching `tax.vat_id_check.enabled`
+            // off restores the old behaviour for an installation that has decided to
+            // live with a format check — the choice becomes explicit instead of being
+            // the default nobody noticed.
+            if ($this->vatIdConfirmationRequired()) {
+                return TaxResult::undetermined(
+                    code: 'vat_id_unconfirmed',
+                    reason: sprintf(
+                        'The VAT ID "%s" was never confirmed with the issuing service, so this '
+                        .'supply cannot be zero-rated as reverse charge. Only its format was '
+                        .'checked. Confirm it (see Support\BuyerAdmission) or turn the '
+                        .'confirmation off in tax.vat_id_check.enabled and accept a document '
+                        .'that stands on a pattern.',
+                        (string) $vatId,
+                    ),
+                    productHandle: $productHandle,
+                    productClass: $productClass,
+                    buyerCountry: $country,
+                    isDigital: $isDigital,
+                    pricesIncludeTax: $pricesIncludeTax,
+                    notes: $notes,
+                );
+            }
+
             if ($this->cfg('merchant_vat_id') === null) {
                 $notes[] = 'The seller\'s own VAT ID is missing (tax.merchant_vat_id). § 14a UStG '
                     .'wants both numbers on the document.';
@@ -835,6 +928,178 @@ final class TaxRules
      * on the payment. Do not query it here — the answer of this class would then depend on
      * when you asked, and an invoice could no longer be recomputed.
      */
+    /**
+     * The two zones that exist outside the seller's own country: `eu-b2b` and
+     * `third-country-b2b`. Null when this is neither, and the ordinary path answers.
+     *
+     * Deliberately ahead of the product class. The rate here is zero whatever class
+     * the product sits in — the supply is not taxable in Germany at all — so
+     * refusing for a missing class would refuse a case that has no rate to get
+     * wrong. The class is still read and stored, because the invoice is read years
+     * later and what it covered is part of what happened.
+     *
+     * Also ahead of the exemption branch, which reverses the ordering decision made
+     * on 25.08. for this one case: an exemption is a German rule, and a supply whose
+     * place is abroad has no German rule to be exempt from. Nothing is lost — both
+     * paths arrive at no tax; what changes is the sentence, and § 14a Abs. 1 UStG
+     * prescribes which sentence.
+     */
+    private function crossBorderBusiness(
+        string $productHandle,
+        ?string $buyerCountry,
+        ?string $buyerVatId,
+        bool $isDigital,
+        ?VatIdStatus $vatIdStatus,
+        bool $buyerIsBusiness,
+    ): ?TaxResult {
+        $country = $this->normalizeCountry($buyerCountry);
+        $merchantCountry = $this->normalizeCountry((string) $this->cfg('merchant_country', 'DE'));
+
+        if ($country === null || $country === $merchantCountry) {
+            return null;
+        }
+
+        $vatId = $this->normalizeVatId($buyerVatId);
+        $notes = [];
+        $productClass = $this->productClassFor($productHandle);
+        $pricesIncludeTax = $this->cfg('prices_include_tax');
+        $pricesIncludeTax = $pricesIncludeTax === null ? null : (bool) $pricesIncludeTax;
+
+        if ($this->isEuMemberState($country)) {
+            // Three separate conditions, and every one of them has to hold. A
+            // confirmed number for a different country, or a verdict of "invalid",
+            // is not evidence of a business — it is evidence of the opposite.
+            if ($vatId === null || $vatIdStatus === null || ! $vatIdStatus->permitsReverseCharge()) {
+                return null;
+            }
+
+            if (! $this->isPlausibleVatId($vatId) || $this->vatIdCountry($vatId) !== $country) {
+                return null;
+            }
+
+            if ($this->cfg('merchant_vat_id') === null) {
+                $notes[] = 'The seller\'s own VAT ID is missing (tax.merchant_vat_id). § 14a Abs. 1 UStG '
+                    .'wants both numbers on the document, and without it this invoice is incomplete.';
+            }
+
+            $notes[] = $vatIdStatus === VatIdStatus::Valid
+                ? sprintf('The buyer\'s VAT ID %s was confirmed before the invoice was written.', $vatId)
+                : sprintf(
+                    'The buyer\'s VAT ID %s could not be confirmed — the service was unreachable. The '
+                    .'invoice says so, and the check is outstanding.',
+                    $vatId,
+                );
+
+            // § 18a Abs. 4 UStG exempts a § 19 seller from the recapitulative
+            // statement in as many words. Naming it only for the seller it applies to
+            // keeps the notes free of a duty this one does not have.
+            if (! (bool) $this->cfg('small_business.enabled', false)) {
+                $notes[] = 'This turnover has to appear in the recapitulative statement (ZM, § 18a UStG).';
+            }
+
+            if ($isDigital) {
+                return TaxResult::zeroRated(
+                    mechanism: TaxResult::MECHANISM_REVERSE_CHARGE,
+                    reason: $this->bilingual('reverse_charge'),
+                    legalBasis: $this->legalBasis('reverse_charge'),
+                    reverseCharge: true,
+                    productHandle: $productHandle,
+                    productClass: $productClass,
+                    buyerCountry: $country,
+                    placeOfSupplyCountry: $country,
+                    isDigital: true,
+                    pricesIncludeTax: $pricesIncludeTax,
+                    notes: $notes,
+                );
+            }
+
+            // Goods rather than a service: same amount, different provision, different
+            // note. `reverseCharge` stays false — the liability does not shift under
+            // § 13b; the buyer taxes an intra-community acquisition instead.
+            return TaxResult::zeroRated(
+                mechanism: TaxResult::MECHANISM_INTRA_COMMUNITY_SUPPLY,
+                reason: $this->bilingual('intra_community_supply'),
+                legalBasis: $this->legalBasis('intra_community_supply'),
+                reverseCharge: false,
+                productHandle: $productHandle,
+                productClass: $productClass,
+                buyerCountry: $country,
+                placeOfSupplyCountry: $country,
+                isDigital: false,
+                pricesIncludeTax: $pricesIncludeTax,
+                notes: [
+                    ...$notes,
+                    'Exempt only with proof that the goods arrived in the other member state '
+                    .'(Gelangensbestätigung). This class does not check for it.',
+                ],
+            );
+        }
+
+        // Outside the EU there is no register to ask, so the evidence is the
+        // buyer's own declaration together with the company name the checkout
+        // insisted on. Without the declaration this is not a business as far as
+        // anything here can tell, and the ordinary path answers instead.
+        if (! $buyerIsBusiness) {
+            return null;
+        }
+
+        if ($vatId !== null) {
+            $notes[] = sprintf('The buyer gave a tax number (%s). Outside the EU it was not verified.', $vatId);
+        }
+
+        if ($isDigital) {
+            return TaxResult::zeroRated(
+                mechanism: TaxResult::MECHANISM_OUTSIDE_SCOPE,
+                reason: $this->bilingual('outside_scope'),
+                legalBasis: $this->legalBasis('outside_scope'),
+                productHandle: $productHandle,
+                productClass: $productClass,
+                buyerCountry: $country,
+                placeOfSupplyCountry: $country,
+                isDigital: true,
+                pricesIncludeTax: $pricesIncludeTax,
+                notes: [
+                    ...$notes,
+                    sprintf(
+                        'No German VAT, but possibly a duty to register in %s (UK VAT, US sales tax '
+                        .'and so on). That is the buyer\'s side, and this class does not check it.',
+                        $country,
+                    ),
+                ],
+            );
+        }
+
+        return TaxResult::zeroRated(
+            mechanism: TaxResult::MECHANISM_EXPORT,
+            reason: $this->bilingual('export'),
+            legalBasis: $this->legalBasis('export'),
+            productHandle: $productHandle,
+            productClass: $productClass,
+            buyerCountry: $country,
+            placeOfSupplyCountry: $country,
+            isDigital: false,
+            pricesIncludeTax: $pricesIncludeTax,
+            notes: [
+                ...$notes,
+                'Exempt only with proof of export (§ 6 Abs. 4 UStG, §§ 9 ff. UStDV). This class '
+                .'does not check for it.',
+            ],
+        );
+    }
+
+    /**
+     * Does this installation expect a VAT ID to be confirmed before it counts?
+     *
+     * Read from the same switch the confirmation service is configured under, so
+     * the two cannot disagree: an installation that has turned the lookup off is
+     * an installation that has accepted a format check, and one that has it on has
+     * not accepted anything less.
+     */
+    private function vatIdConfirmationRequired(): bool
+    {
+        return (bool) $this->cfg('vat_id_check.enabled', true);
+    }
+
     private function destinationTaxationApplies(): bool
     {
         return (bool) $this->cfg('oss.destination_taxation', false);
@@ -924,6 +1189,23 @@ final class TaxRules
         $vatId = strtoupper((string) preg_replace('/[\s.\-\/]/', '', $vatId));
 
         return $vatId === '' ? null : $vatId;
+    }
+
+    /**
+     * The prescribed German sentence, followed by its English companion.
+     *
+     * In that order and never the other way round: § 14a Abs. 1 UStG names the
+     * German wording, so an English-first document would be missing a mandatory
+     * particular. Configuring the English half as an empty string leaves the
+     * German sentence exactly as it was.
+     */
+    private function bilingual(string $key): string
+    {
+        $german = (string) $this->cfg('texts.'.$key, self::DEFAULTS['texts'][$key] ?? '');
+        $english = $this->cfg('texts_en.'.$key, self::DEFAULTS['texts_en'][$key] ?? '');
+        $english = is_string($english) ? trim($english) : '';
+
+        return $english === '' ? $german : trim($german).' '.$english;
     }
 
     private function legalBasis(string $key): ?string

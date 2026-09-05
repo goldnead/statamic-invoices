@@ -72,6 +72,29 @@
          das Rechnungsdatum, und das gehoert hingeschrieben statt vorausgesetzt. --}}
     <span>Leistungsdatum: {{ $invoice->issued_at->format('d.m.Y') }}</span>
     @if($invoice->buyer_vat_id)<span>USt-IdNr. des Empfängers: {{ $invoice->buyer_vat_id }}</span>@endif
+    {{-- Was ueber diese Nummer bekannt war, als das Dokument entstand — nicht
+         mehr und nicht weniger. Ein Reverse-Charge-Hinweis neben einer Nummer,
+         die niemand geprueft hat, behauptet eine Pruefung; ein bestaetigter
+         Beleg ohne Datum und Dienst laesst sich Jahre spaeter nicht nachvollziehen.
+         Deshalb steht hier genau der eingefrorene Zustand, in beiden Sprachen. --}}
+    @php
+        $pruefstand = $invoice->buyer_vat_id ? $invoice->vatIdStatus() : null;
+        $geprueftAm = $invoice->buyer_vat_id_checked_at;
+        $bestaetigt = null;
+
+        if ($pruefstand === \Goldnead\Invoices\Support\VatIdStatus::Valid) {
+            $bestaetigt = 'Nummer bestätigt'
+                .($invoice->buyer_vat_id_service ? ' ('.$invoice->buyer_vat_id_service.')' : '')
+                .($geprueftAm ? ' am '.$geprueftAm->format('d.m.Y') : '')
+                .($invoice->buyer_vat_id_reference ? ', Nachweis '.$invoice->buyer_vat_id_reference : '')
+                .'. VAT ID confirmed'.($geprueftAm ? ' on '.$geprueftAm->format('Y-m-d') : '').'.';
+        }
+    @endphp
+    @if($bestaetigt)
+        <span>{{ $bestaetigt }}</span>
+    @elseif($pruefstand === \Goldnead\Invoices\Support\VatIdStatus::Pending)
+        <span>USt-IdNr. angegeben, Bestätigung ausstehend. VAT ID provided, verification pending.</span>
+    @endif
 </div>
 
 <table>

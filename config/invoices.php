@@ -163,6 +163,43 @@ return [
             'eu_threshold_mode' => env('INVOICES_SMALL_BUSINESS_EU_THRESHOLD', 'below'),
         ],
 
+        // Business buyers only, which is a tax decision before it is a sales one.
+        //
+        // Selling to a consumer abroad pulls in the whole apparatus: the 10.000 €
+        // threshold, OSS or § 19a, a UK registration from the very first sale, and
+        // every consumer-protection duty in the checkout. Selling to businesses
+        // only removes all of it, and the evidence it costs is one field: the
+        // company name, plus a VAT ID inside the EU.
+        //
+        // Off means the checkout gate stops asking and the ordinary rules answer
+        // consumers again. Nothing else changes — the gate refuses, it never taxes.
+        'business_only' => [
+            'enabled' => env('INVOICES_BUSINESS_ONLY', true),
+            'require_company' => env('INVOICES_REQUIRE_COMPANY', true),
+        ],
+
+        // Confirming the buyer's VAT ID with the service that issues them.
+        //
+        // The format check in TaxRules says a number could exist; this says it
+        // does. § 14a Abs. 1 UStG asks for the number on the invoice, and a tax
+        // office asking whether it was confirmed wants the date and the reference,
+        // both of which are frozen onto the document.
+        //
+        //   enabled      off leaves every check at "unchecked", which means no EU
+        //                sale gets through the gate. Off is for a test bench.
+        //   service      'vies' is what ships. The German BZSt enquiry (§ 18e UStG)
+        //                is the better evidence here and is the reason
+        //                Contracts\VatIdVerifier is an interface.
+        //   timeout      seconds. Past it the check is "pending", not "invalid".
+        //   cache_hours  how long a *confirmed* number is remembered. A pending or
+        //                invalid answer is never cached — see BuyerAdmission.
+        'vat_id_check' => [
+            'enabled' => env('INVOICES_VAT_ID_CHECK', true),
+            'service' => env('INVOICES_VAT_ID_SERVICE', 'vies'),
+            'timeout' => (int) env('INVOICES_VAT_ID_TIMEOUT', 8),
+            'cache_hours' => (int) env('INVOICES_VAT_ID_CACHE_HOURS', 168),
+        ],
+
         // Where the seller sits. Decides what counts as domestic, as EU, and as export.
         'merchant_country' => env('INVOICES_MERCHANT_COUNTRY', 'DE'),
 
@@ -221,6 +258,13 @@ return [
         //
         // Only Germany ships filled in, on purpose. Foreign rates change, and a rate
         // that is stale here is worse than one that is missing: missing says so.
+        //
+        // A business-only seller needs no second zone. The other two cases —
+        // `eu-b2b` and `third-country-b2b`, see Support\TaxZone — carry no rate at
+        // all: the supply is taxed where the buyer sits (§ 3a Abs. 2 UStG), so what
+        // differs between them is the sentence on the invoice, not a percentage.
+        // They are therefore resolved by the rules, not configured here, and the
+        // twenty-seven member state rates stay out of this file.
         'zones' => [
             'de' => [
                 'countries' => ['DE'],
@@ -255,6 +299,18 @@ return [
             'export' => 'Steuerfreie Ausfuhrlieferung.',
             'outside_scope' => 'Nicht im Inland steuerbar; der Leistungsort liegt im Land des Empfängers.',
             'zero_rate' => 'Kein Umsatzsteuerausweis.',
+        ],
+
+        // The English half of the two sentences a foreign business reads, appended
+        // to the German one — never instead of it. § 14a Abs. 1 UStG prescribes the
+        // German wording as a mandatory particular; the English line is what makes
+        // the document usable for the buyer's own accountant. Set one to an empty
+        // string to print the German sentence alone.
+        'texts_en' => [
+            'reverse_charge' => 'Reverse charge: the recipient is liable for the VAT.',
+            'intra_community_supply' => 'Tax-exempt intra-community supply.',
+            'outside_scope' => 'Not taxable in Germany; the place of supply is the customer\'s country.',
+            'export' => 'Tax-exempt export.',
         ],
 
         // Stored alongside each decision so an audit can follow it years later.

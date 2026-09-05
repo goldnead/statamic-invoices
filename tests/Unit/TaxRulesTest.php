@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Goldnead\Invoices\Support\TaxResult;
 use Goldnead\Invoices\Support\TaxRules;
+use Goldnead\Invoices\Support\VatIdStatus;
 
 /*
 |--------------------------------------------------------------------------
@@ -183,13 +184,45 @@ it('takes a lowercase country code', function () {
 // ── 4. VAT ID and reverse charge ─────────────────────────────────────────────
 
 it('shifts the liability for a digital supply to an EU business', function () {
-    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+    // The status is passed explicitly, and every cross-border B2B case below does
+    // the same. It used to be implicit, and implicit meant "nobody asked" — which
+    // the class then zero-rated anyway. Naming it here is the point: a reverse
+    // charge line stands on a confirmation or it does not stand.
+    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true, VatIdStatus::Valid);
 
     expect($result->rateBasisPoints)->toBe(0)
         ->and($result->reverseCharge)->toBeTrue()
         ->and($result->mechanism)->toBe(TaxResult::MECHANISM_REVERSE_CHARGE)
-        ->and($result->reason)->toBe('Steuerschuldnerschaft des Leistungsempfängers.')
+        ->and($result->reason)->toContain('Steuerschuldnerschaft des Leistungsempfängers.')
+        ->and($result->reason)->toContain('Reverse charge')
         ->and($result->legalBasis)->toContain('§ 14a Abs. 5 UStG');
+});
+
+it('refuses to zero-rate an EU business whose number nobody confirmed', function () {
+    // The failure this ticket exists to close: the format matched, so the old path
+    // wrote "Steuerschuldnerschaft des Leistungsempfängers" onto a document that
+    // stood on a regular expression.
+    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+
+    expect($result->rateBasisPoints)->toBeNull()
+        ->and($result->code)->toBe('vat_id_unconfirmed')
+        ->and($result->reason)->toContain('never confirmed');
+});
+
+it('refuses it just as firmly when the service said the number is invalid', function () {
+    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true, VatIdStatus::Invalid);
+
+    expect($result->code)->toBe('vat_id_unconfirmed');
+});
+
+it('still zero-rates on the format alone once confirmation is switched off', function () {
+    // An installation may decide to live with a format check. What it may not do is
+    // arrive there without deciding.
+    $result = taxRules(['vat_id_check' => ['enabled' => false]])
+        ->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+
+    expect($result->reverseCharge)->toBeTrue()
+        ->and(implode(' ', $result->notes))->toContain('only the format was checked');
 });
 
 it('does not shift the liability inside Germany, VAT ID or not', function () {
@@ -201,12 +234,13 @@ it('does not shift the liability inside Germany, VAT ID or not', function () {
 });
 
 it('calls goods to an EU business an intra-community supply, not reverse charge', function () {
-    $result = taxRules()->resolve('chorwerk-noten', 'AT', 'ATU12345678', false);
+    $result = taxRules()->resolve('chorwerk-noten', 'AT', 'ATU12345678', false, VatIdStatus::Valid);
 
     expect($result->rateBasisPoints)->toBe(0)
         ->and($result->mechanism)->toBe(TaxResult::MECHANISM_INTRA_COMMUNITY_SUPPLY)
         ->and($result->reverseCharge)->toBeFalse()
-        ->and($result->reason)->toBe('Steuerfreie innergemeinschaftliche Lieferung.')
+        ->and($result->reason)->toContain('Steuerfreie innergemeinschaftliche Lieferung.')
+        ->and($result->reason)->toContain('intra-community supply')
         ->and(implode(' ', $result->notes))->toContain('Gelangensbestätigung');
 });
 
@@ -226,14 +260,15 @@ it('refuses to choose when VAT ID and country contradict each other', function (
 });
 
 it('notes the missing seller VAT ID on a reverse charge line', function () {
-    $result = taxRules(['merchant_vat_id' => null])->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+    $result = taxRules(['merchant_vat_id' => null])
+        ->resolve('cw-kurs', 'AT', 'ATU12345678', true, VatIdStatus::Valid);
 
     expect($result->reverseCharge)->toBeTrue()
-        ->and(implode(' ', $result->notes))->toContain('§ 14a UStG');
+        ->and(implode(' ', $result->notes))->toContain('§ 14a Abs. 1 UStG');
 });
 
 it('reads a Greek VAT ID under its EL prefix', function () {
-    $result = taxRules()->resolve('cw-kurs', 'GR', 'EL123456789', true);
+    $result = taxRules()->resolve('cw-kurs', 'GR', 'EL123456789', true, VatIdStatus::Valid);
 
     expect($result->reverseCharge)->toBeTrue();
 });
@@ -361,7 +396,7 @@ it('rounds cents commercially and mirrors that on a credit note', function () {
 });
 
 it('leaves nothing to split on a zero-rated line', function () {
-    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true);
+    $result = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true, VatIdStatus::Valid);
 
     expect($result->split(10000))->toBe(['net' => 10000, 'tax' => 0, 'gross' => 10000]);
 });
@@ -524,6 +559,7 @@ it('answers through the static entry point with named arguments', function () {
         buyerVatId: 'ATU12345678',
         isDigital: true,
         config: taxTestConfig(),
+        vatIdStatus: VatIdStatus::Valid,
     );
 
     expect($result->rateBasisPoints)->toBe(0)
@@ -538,7 +574,7 @@ it('says nothing at all when handed an empty config', function () {
 });
 
 it('hands the whole reasoning over for storage on the invoice', function () {
-    $stored = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true)->toArray();
+    $stored = taxRules()->resolve('cw-kurs', 'AT', 'ATU12345678', true, VatIdStatus::Valid)->toArray();
 
     expect($stored)->toHaveKeys([
         'rate_basis_points', 'reason', 'reverse_charge', 'mechanism', 'legal_basis',

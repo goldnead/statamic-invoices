@@ -1,5 +1,116 @@
 # Changelog
 
+## 1.4.0 — 2026-09-05
+
+Drei Steuerzonen, eine echte USt-IdNr.-Prüfung und ein Tor vor dem Checkout. Anlass ist der
+Verkauf der Addon-Suite ins Ausland: an Unternehmen, überwiegend außerhalb Deutschlands, über
+die eigene Kette. Genau diese Konstellation traf die Stellen, an denen das Addon weniger konnte,
+als eine Auslandsrechnung braucht.
+
+### Die USt-IdNr. wird geprüft, nicht nur angesehen
+
+Bisher wurde die Nummer gegen ein Muster gehalten, und die Rechnung schrieb ehrlich dazu, dass
+nur die Form geprüft wurde. Jetzt fragt `Verification\ViesVerifier` den Bestätigungsdienst der
+EU. Liegt die eigene Nummer in `tax.merchant_vat_id`, ist die Abfrage eine qualifizierte, und die
+Antwort trägt ein Aktenzeichen, das sich Jahre später zitieren lässt.
+
+Das Ergebnis wird **an der Rechnung eingefroren**: Urteil, Zeitpunkt, Dienst und Aktenzeichen in
+vier neuen Spalten. Nachgesehen wird nie beim Rendern — die Antwort von heute ist nicht die, auf
+die sich der Verkäufer damals gestützt hat.
+
+**Ein Ausfall ist kein Urteil.** Timeout, HTTP 500, kaputter Körper, oder VIES' eigenes
+`MS_UNAVAILABLE` innerhalb einer 200 — alles davon endet als `pending`, nie als `invalid`. Der
+Kauf kommt zustande, die Rechnung sagt „USt-IdNr. angegeben, Bestätigung ausstehend / VAT ID
+provided, verification pending", und die Nachprüfung steht in der neuen Utility im Control Panel.
+Damit bleibt die Regel vom 25.08. heil: eine Rechnung fällt nicht mit einem fremden Server.
+`invoices:recheck-vat-ids` fragt später noch einmal und schreibt das Ergebnis in eine eigene
+Tabelle — nie in die Rechnung, die sich nicht ändert.
+
+### Drei Zonen statt siebenundzwanzig Ländersätzen
+
+`Support\TaxZone`: `de`, `eu-b2b`, `third-country-b2b`. Mehr braucht ein Verkäufer nicht, der nur
+an Unternehmen verkauft — eine Leistung an ein Unternehmen im Ausland wird beim Empfänger
+besteuert (§ 3a Abs. 2 UStG), es fällt in allen drei Fällen keine deutsche Steuer an, und was
+sich unterscheidet, ist der Satz auf dem Beleg. Die Ländersätze bleiben deshalb draußen.
+
+### Verhaltensänderung: § 19 verdeckt Auslands-B2B nicht mehr
+
+Bisher beantwortete der Kleinunternehmer-Zweig auch den grenzüberschreitenden B2B-Fall mit
+„keine Umsatzsteuer nach § 19 UStG" und einer Warnung. Das ist die falsche Pflichtangabe: § 19
+ist eine Inlandsregel, und für die Leistung an ein Unternehmen im Ausland liegt der Ort beim
+Empfänger. § 14a Abs. 1 UStG will dort „Steuerschuldnerschaft des Leistungsempfängers" und beide
+USt-IdNrn. auf dem Dokument. Herleitung: `TASKS/suite-steuer-selbsteinschaetzung-2026-09-05.md`,
+Frage (b).
+
+Der neue Weg greift **nur, wenn jemand die Unternehmereigenschaft tatsächlich festgestellt hat**:
+eine bestätigte (oder wegen Ausfalls ausstehende) USt-IdNr. innerhalb der EU, eine Erklärung des
+Käufers außerhalb. Eine bloß formal geprüfte Nummer ändert nichts — der alte Weg antwortet weiter
+wie bisher.
+
+Die Sätze für die beiden Auslandszonen stehen jetzt zweisprachig auf dem Beleg: die
+vorgeschriebene deutsche Formulierung, gefolgt von der englischen aus `tax.texts_en`.
+
+### Verhaltensänderung: eine formal geprüfte Nummer stellt nicht mehr steuerfrei
+
+Bisher genügte es, dass eine USt-IdNr. zu einem Muster passte, damit eine EU-Lieferung
+steuerfrei gestellt wurde — mit der vorgeschriebenen § 14a-Formulierung auf dem Beleg und einem
+Hinweis in den internen Notizen, dass nur die Form geprüft wurde. Das ist die Behauptung einer
+Prüfung, die nie stattgefunden hat, und der Beleg sieht dabei völlig unauffällig aus.
+
+Jetzt kommt in diesem Fall kein Satz heraus, sondern `undetermined` mit dem Code
+`vat_id_unconfirmed` — die Rechnung wird nicht geschrieben, und der Fall landet dort, wo dieses
+Addon jeden ungeklärten Fall hinlegt: bei einem Menschen. Wer bewusst mit einer reinen
+Formatprüfung leben will, setzt `tax.vat_id_check.enabled` auf `false`; dann verhält sich alles
+wie vorher, samt der alten Notiz. Die Entscheidung ist damit ausdrücklich statt voreingestellt.
+
+Die betroffenen Unit-Tests übergeben den Prüfstand jetzt sichtbar (`VatIdStatus::Valid`). Dass
+sie ihn vorher weggelassen haben und trotzdem grün waren, war genau das Problem.
+
+### Das Tor vor dem Checkout
+
+`Support\BuyerAdmission` beantwortet, ob ein Käufer kaufen darf und in welcher Zone. Abgewiesen
+wird: ohne Land, ohne Firmenname, EU ohne bestätigte USt-IdNr., Drittland ohne Bestätigung der
+unternehmerischen Nutzung. Zwei Oberflächen:
+
+- Die Middleware `invoices.business-buyer`, die ein Host auf seine eigene Checkout-Route legt.
+  Sie ist die Durchsetzung und setzt das eingefrorene Ergebnis selbst in die Anfrage, damit ein
+  Client kein „bestätigt" unterschieben kann.
+- `POST /!/invoices/buyer-check`, damit das Formular die Antwort schon kennt, während der Käufer
+  tippt, statt nach dem Start der Zahlung.
+
+Ein Ausfall des Prüfdienstes weist niemanden ab.
+
+### Control Panel
+
+Neue Utility „USt-IdNr.-Prüfungen": die Rechnungen, deren Nummer beim Kauf nicht bestätigt werden
+konnte, mit dem, was eine spätere Nachfrage ergeben hat. Der Bildschirm zeigt und handelt nicht —
+was aus einer Nummer folgt, die eine Woche später ungültig ist, ist eine Entscheidung, und
+§ 6a Abs. 4 UStG schützt das Vertrauen auf die Auskunft vom Kauftag.
+
+Die Liste enthält nicht nur die ausstehenden Prüfungen, sondern auch die Belege, auf denen eine
+Nummer steht und **nie** jemand gefragt hat: ältere Rechnungen, oder eine Zahlung, die den
+Schreiber am Checkout vorbei erreicht hat. Sonst wäre das eine Klasse von Rechnungen, die keine
+Auswertung zählen kann, weil keine von ihr weiß. Bildschirm und `invoices:recheck-vat-ids` lesen
+dieselbe Definition (`Invoice::scopeAwaitingVatIdConfirmation`), damit die Liste nichts zeigt, was
+das Kommando nie anfasst, und umgekehrt.
+
+`tax.business_only.enabled` tut jetzt, was der Kommentar daneben immer versprach: auf `false` hört
+das Tor auf, Verbraucher abzuweisen. Vorher las das Tor nur `require_company`, und der Schalter war
+wirkungslos, ohne das zu sagen.
+
+### Neue Konfiguration
+
+`tax.vat_id_check` (`enabled`, `service`, `timeout`, `cache_hours`), `tax.business_only`
+(`enabled`, `require_company`), `tax.texts_en`. Migration
+`2026_09_05_090000_add_vat_id_verification_to_invoices` legt die vier Spalten plus `tax_zone` auf
+`invoices` an und die Tabelle `invoice_vat_id_checks`.
+
+### Aufräumen am Rand
+
+Routen werden jetzt aus `boot()` registriert statt aus `bootAddon()`. Letzteres läuft aus einem
+`Statamic::booted()`-Callback, und eine dort angemeldete Route steht in der Sammlung, ohne je zu
+greifen — sie funktionierte nur, weil in einer App etwas anderes zuerst registriert.
+
 ## 1.3.1 — 2026-09-05
 
 Kein Verhalten geändert. Das Addon schreibt die Rechnungen, mit denen die Suite verkauft wird, und

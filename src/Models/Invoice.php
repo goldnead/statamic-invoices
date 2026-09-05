@@ -2,6 +2,9 @@
 
 namespace Goldnead\Invoices\Models;
 
+use Goldnead\Invoices\Support\TaxZone;
+use Goldnead\Invoices\Support\VatIdStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,6 +36,11 @@ use Illuminate\Support\Carbon;
  * @property string|null $buyer_country
  * @property string|null $buyer_vat_id
  * @property string|null $buyer_address
+ * @property string|null $tax_zone
+ * @property string|null $buyer_vat_id_status
+ * @property Carbon|null $buyer_vat_id_checked_at
+ * @property string|null $buyer_vat_id_service
+ * @property string|null $buyer_vat_id_reference
  * @property array<string, mixed>|null $seller
  * @property int $net_cent
  * @property int $tax_cent
@@ -63,7 +71,75 @@ class Invoice extends Model
             'net_cent' => 'integer',
             'tax_cent' => 'integer',
             'gross_cent' => 'integer',
+            'buyer_vat_id_checked_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Which of the three cases this document is, as the enum rather than a string.
+     *
+     * Null for a row written before the zones existed, and for one whose stored
+     * value this version does not know. Neither is defaulted to `de`: an unknown
+     * zone is a thing to look at, and "domestic" is the one answer that would hide
+     * that by looking ordinary.
+     */
+    public function zone(): ?TaxZone
+    {
+        return is_string($this->tax_zone) ? TaxZone::tryFrom($this->tax_zone) : null;
+    }
+
+    /** What was known about the buyer's VAT ID when this was written. */
+    public function vatIdStatus(): ?VatIdStatus
+    {
+        return VatIdStatus::tryFromMixed($this->buyer_vat_id_status);
+    }
+
+    /**
+     * Is somebody still owed an answer about this buyer's VAT ID?
+     *
+     * Narrower than {@see self::scopeAwaitingVatIdConfirmation()} on purpose, and
+     * the two answer different questions. This one is about *this* document: was a
+     * confirmation attempted and left hanging? The scope is about the work queue,
+     * which also has to contain the rows nobody ever asked about — otherwise they
+     * are a class of invoice no report can count.
+     */
+    public function awaitsVatIdConfirmation(): bool
+    {
+        return $this->vatIdStatus() === VatIdStatus::Pending;
+    }
+
+    /**
+     * Every invoice whose buyer VAT ID still owes somebody an answer.
+     *
+     * One definition, used by the Control Panel screen and by the console command
+     * that asks again — because a list that shows rows the command never revisits,
+     * or a command that revisits rows the list never shows, is two definitions of
+     * "outstanding" that drift apart in silence.
+     *
+     * Three states qualify, and a fourth deliberately does not. `pending`: asked,
+     * no answer. `unchecked` and a null status: a number is on the document and
+     * nobody asked — an older invoice, a payment that reached the writer past the
+     * checkout, or a status a later release wrote and this one cannot read. A
+     * confirmed number is done; an invoice without a number has nothing to ask about.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeAwaitingVatIdConfirmation($query)
+    {
+        return $query
+            ->whereNotNull('buyer_vat_id')
+            ->where(fn ($q) => $q
+                ->where('buyer_vat_id_status', VatIdStatus::Pending->value)
+                ->orWhere('buyer_vat_id_status', VatIdStatus::Unchecked->value)
+                ->orWhereNull('buyer_vat_id_status'));
+    }
+
+    /**
+     * Later looks at the same number. Never edits of this row — see booted().
+     */
+    public function vatIdChecks(): HasMany
+    {
+        return $this->hasMany(VatIdCheckRecord::class)->latest('checked_at');
     }
 
     protected static function booted(): void

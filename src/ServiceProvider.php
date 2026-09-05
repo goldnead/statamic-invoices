@@ -4,15 +4,22 @@ namespace Goldnead\Invoices;
 
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Contracts\SenderIdentityResolver;
+use Goldnead\Invoices\Contracts\VatIdVerifier;
+use Goldnead\Invoices\Cp\OutstandingVatChecks;
+use Goldnead\Invoices\Http\Middleware\RequireBusinessBuyer;
 use Goldnead\Invoices\Integrations\Insights\Gross;
 use Goldnead\Invoices\Integrations\Insights\Issued;
 use Goldnead\Invoices\Integrations\Insights\Net;
 use Goldnead\Invoices\Integrations\Insights\Tax;
 use Goldnead\Invoices\Sending\BrandMailer;
 use Goldnead\Invoices\Sending\BrandSenderIdentity;
+use Goldnead\Invoices\Support\BuyerAdmission;
 use Goldnead\Invoices\Support\DompdfRenderer;
 use Goldnead\Invoices\Support\NumberSeries;
+use Goldnead\Invoices\Verification\ViesVerifier;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
+use Statamic\Facades\Utility;
 use Statamic\Providers\AddonServiceProvider;
 use Throwable;
 
@@ -66,6 +73,23 @@ class ServiceProvider extends AddonServiceProvider
         $this->app->singleton(SenderIdentityResolver::class, BrandSenderIdentity::class);
         $this->app->singleton(BrandMailer::class);
 
+        // Who confirms a VAT ID. Bound to the interface for the same reason the
+        // PDF engine is: VIES is what ships and works everywhere, while the German
+        // BZSt enquiry (§ 18e UStG) is the better evidence for a German seller. A
+        // host that wants the latter rebinds this one line.
+        //
+        // Not a singleton. It holds a timeout read from config, and a config that
+        // changes mid-request — which is what every test that sets one does — must
+        // not be answered by an object built before the change.
+        $this->app->bind(VatIdVerifier::class, fn ($app) => new ViesVerifier(
+            timeoutSeconds: max(1, (int) $app['config']->get('invoices.tax.vat_id_check.timeout', 8)),
+        ));
+
+        $this->app->bind(BuyerAdmission::class, fn ($app) => BuyerAdmission::fromConfig(
+            $app->make(VatIdVerifier::class),
+            is_array($block = $app['config']->get('invoices.tax')) ? $block : [],
+        ));
+
         // Registered against the resolving translator rather than in
         // bootAddon(): a metric's label and group are asked for while the
         // analytics addon is building its screen, which can happen before this
@@ -84,7 +108,75 @@ class ServiceProvider extends AddonServiceProvider
     {
         $this->bootMigrations()
             ->bootInsights()
+            ->bootUtility()
             ->bootPublishing();
+    }
+
+    /**
+     * Routes are registered here rather than in `bootAddon()`, and that is not a
+     * stylistic choice.
+     *
+     * `bootAddon()` runs from a `Statamic::booted()` callback, which fires after
+     * the framework has already begun handling the request — a route added there
+     * exists in the collection and is never matched. It works in an app because
+     * something else registers it first; it does not work in this package's own
+     * test suite, where `bootAddon()` is invoked by hand. A route that only
+     * matches in production is a route nobody tests.
+     */
+    public function boot()
+    {
+        parent::boot();
+
+        $this->bootRoutes();
+    }
+
+    /**
+     * The gate's two surfaces: one route the checkout form asks, one screen that
+     * shows what the fallback let through.
+     *
+     * Registered by hand rather than through the `$routes` property of
+     * AddonServiceProvider, because that property is read during Statamic's own
+     * boot — which does not run for a package outside an app's addon manifest,
+     * i.e. in every test of this package. A route that only exists in production
+     * is a route nobody tests.
+     *
+     * The middleware alias is registered but never applied here. Which route needs
+     * the gate is the host's decision: this package does not own the checkout, and
+     * silently wrapping somebody else's route would be a surprise in the one place
+     * surprises cost money.
+     */
+    protected function bootRoutes(): self
+    {
+        $this->app['router']->aliasMiddleware('invoices.business-buyer', RequireBusinessBuyer::class);
+
+        Route::middleware('web')->group(__DIR__.'/../routes/web.php');
+
+        return $this;
+    }
+
+    /**
+     * The screen that shows what the fallback let through.
+     *
+     * A utility rather than a route of our own: it brings the nav entry, the
+     * permission (`access vat-checks utility`) and the Control Panel chrome with
+     * it, and the `->view()` variant pipes the fragment through Statamic 6's
+     * DynamicHtmlRenderer, where the `<ui-*>` components live. So the list looks
+     * like the rest of the Control Panel without this addon carrying a JavaScript
+     * bundle of its own, which it otherwise does not have and would have to build,
+     * commit and keep in step for one table.
+     */
+    protected function bootUtility(): self
+    {
+        Utility::extend(function () {
+            Utility::register('vat-checks')
+                ->view('invoices::cp.pending-vat-checks', app(OutstandingVatChecks::class))
+                ->title('USt-IdNr.: Prüfung ausstehend')
+                ->navTitle('USt-IdNr.-Prüfungen')
+                ->icon('shield-key')
+                ->description('Rechnungen, deren USt-IdNr. beim Kauf nicht bestätigt werden konnte.');
+        });
+
+        return $this;
     }
 
     protected function bootMigrations(): self

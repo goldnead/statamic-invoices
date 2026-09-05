@@ -170,6 +170,68 @@ The mail leaves through brand-context's `BrandMailer`, which decides **who it co
 `php artisan vendor:publish --tag=invoices-views` publishes the covering letter alongside the
 document itself.
 
+## Selling to businesses
+
+A seller who only sells to businesses has three cases, not twenty-seven. A supply to a business
+abroad is taxed where the buyer sits (§ 3a Abs. 2 UStG), so no German VAT is charged in any of
+them and what differs is the sentence on the document:
+
+| Zone | Buyer | On the invoice |
+|---|---|---|
+| `de` | domestic | no VAT, § 19 UStG (or your ordinary rate) |
+| `eu-b2b` | EU business with a confirmed VAT ID | no VAT, both VAT IDs, "Steuerschuldnerschaft des Leistungsempfängers" plus the English line (§ 14a Abs. 1 UStG) |
+| `third-country-b2b` | business outside the EU | no VAT, "Leistung im Inland nicht steuerbar" / "Not taxable in Germany" |
+
+### The gate
+
+Put the middleware on your own checkout route. It refuses a buyer with no country, no company
+name, an EU buyer without a confirmed VAT ID, and a third-country buyer who has not said they are
+buying as a business:
+
+```php
+Route::post('/checkout', CheckoutController::class)
+    ->middleware('invoices.business-buyer');
+```
+
+On admission it merges the frozen check into the request as `vat_id_check`. Put that into the
+payment's `meta` and the invoice reads it from there — nothing asks the confirmation service
+twice, and nothing looks it up again at render time.
+
+`POST /!/invoices/buyer-check` answers the same question for a form while the buyer is typing. It
+is a convenience, not the gate: a client can ignore it, and the middleware asks again on the
+server.
+
+### When the confirmation service is down
+
+The purchase goes through. The check comes back `pending`, the invoice says "VAT ID provided,
+verification pending", and the case appears under **Utilities → USt-IdNr.-Prüfungen** in the
+Control Panel. `php artisan invoices:recheck-vat-ids` asks again later and writes what it found
+into `invoice_vat_id_checks` — never into the invoice, which does not change. The command exits
+non-zero only when a number that was pending now comes back invalid, so it can sit in a schedule
+without teaching anybody to ignore it.
+
+The distinction it is built around: `valid: false` is an answer and means invalid; a timeout, a
+500, an unreadable body or VIES' own `MS_UNAVAILABLE` inside an HTTP 200 are non-answers and mean
+pending. Collapsing the two would tell a business with a correct number that it is wrong.
+
+### Configuration
+
+```php
+'tax' => [
+    'business_only' => ['enabled' => true, 'require_company' => true],
+    'vat_id_check' => [
+        'enabled' => true,      // off leaves every check "unchecked", so no EU sale gets through
+        'service' => 'vies',
+        'timeout' => 8,         // past it the check is pending, not invalid
+        'cache_hours' => 168,   // only a *confirmed* number is remembered
+    ],
+    'merchant_vat_id' => env('INVOICES_SELLER_VAT_ID'),  // makes the enquiry a qualified one
+],
+```
+
+Bind `Contracts\VatIdVerifier` to your own implementation to use the German BZSt enquiry
+(§ 18e UStG) instead of VIES.
+
 ## What it deliberately does not do
 
 - **Bookkeeping, DATEV export, dunning.** Different job, different software.
@@ -191,5 +253,6 @@ document itself.
   member state above it owes that country's VAT unless it uses the EU small business scheme
   (§ 19a UStG). `tax.small_business.eu_threshold_mode` and `eu_scheme` tell the addon which case
   you are in; it warns on the result, it does not decide. None of this is tax advice.
-- **VIES lookups.** A VAT ID is checked for shape here, never over the network: a tax calculation
-  that depends on somebody else's server is one that fails at checkout when their server is down.
+- **Deciding what a VAT ID means without being asked.** The confirmation is a network call, so it
+  lives outside the calculation: `TaxRules` still only ever sees a shape and a verdict handed to
+  it. See "Selling to businesses" below for the part that does the asking.
