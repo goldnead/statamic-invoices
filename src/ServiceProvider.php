@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices;
 
+use Goldnead\BrandContext\Settings\SettingsRegistry;
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Contracts\SenderIdentityResolver;
 use Goldnead\Invoices\Contracts\VatIdVerifier;
@@ -16,9 +17,11 @@ use Goldnead\Invoices\Sending\BrandSenderIdentity;
 use Goldnead\Invoices\Support\BuyerAdmission;
 use Goldnead\Invoices\Support\DompdfRenderer;
 use Goldnead\Invoices\Support\NumberSeries;
+use Goldnead\Invoices\Support\Settings;
 use Goldnead\Invoices\Verification\ViesVerifier;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use Statamic\Facades\Permission;
 use Statamic\Facades\Utility;
 use Statamic\Providers\AddonServiceProvider;
 use Throwable;
@@ -108,8 +111,49 @@ class ServiceProvider extends AddonServiceProvider
     {
         $this->bootMigrations()
             ->bootInsights()
+            ->bootSettings()
+            ->bootPermissions()
             ->bootUtility()
             ->bootPublishing();
+    }
+
+    /**
+     * Die Einstellungs-Seite, angemeldet statt gebaut.
+     *
+     * Das ist der ganze Umfang. Die Registry bekommt {@see Settings} — die
+     * Feldliste, mehr gehört diesem Addon daran nicht — und
+     * `statamic-brand-context` stellt Bildschirm, Formular, Validierung,
+     * Speicher, Marken und Routen. Ein eigener Controller, ein eigenes
+     * Formular oder Statamics `settingsBlueprint()` wären drei Wege, dieselbe
+     * Sache ein zweites Mal zu beschreiben; der Blueprint zusätzlich einer, der
+     * `config()` gar nicht anfasst und Vollkopien statt Abweichungen speichert.
+     */
+    protected function bootSettings(): self
+    {
+        $this->app->make(SettingsRegistry::class)->register(Settings::class);
+
+        return $this;
+    }
+
+    /**
+     * Das Recht, das den Einstellungs-Abschnitt bewacht.
+     *
+     * `manage invoices settings`, hingeschrieben in
+     * {@see Settings::settingsPermission()} und hier angemeldet — die Registry
+     * leitet keinen Namen ab, sie fragt das Addon. Die Lese-Rechte dieses
+     * Addons bringt `Utility::register` mit (`access vat-checks utility`);
+     * dieses hier ist das erste eigene.
+     */
+    protected function bootPermissions(): self
+    {
+        Permission::extend(function () {
+            Permission::group('invoices', __('invoices::settings.permission_group'), function () {
+                Permission::register(Settings::settingsPermission())
+                    ->label(__('invoices::settings.permission_manage_settings'));
+            });
+        });
+
+        return $this;
     }
 
     /**

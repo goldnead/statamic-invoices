@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.0 — 2026-09-07
+
+**Eine Einstellungs-Seite im Control Panel.** Verkäuferidentität, Nummernkreis, § 19-Schalter,
+Steuerschalter und die Sätze auf dem Beleg standen bisher nur in der `.env`. Eine `.env` hat
+einen Wert je Schlüssel; ein Mehrmarken-Host hat zwei Anschriften, zwei Steuernummern und
+womöglich zwei Antworten auf § 19. Was auf der Rechnung steht, ist dabei keine Kleinigkeit:
+ohne die Angaben des leistenden Unternehmers ist das Dokument nach § 14 UStG keine Rechnung,
+und die Angaben werden beim Ausstellen eingefroren.
+
+Gebaut wird die Seite nicht hier. Das Addon meldet nur seine Feldliste
+(`Support\Settings`, `Goldnead\BrandContext\Contracts\ProvidesSettings`) bei der
+`SettingsRegistry` an; Bildschirm, Formular, Validierung, Speicher, Marken und Routen kommen
+aus `statamic-brand-context` (daher `^1.12`). Gespeichert werden nur Abweichungen — was
+niemand ändert, folgt weiter `config/invoices.php`, und ein Paket-Update verschiebt die
+Vorgaben wie bisher.
+
+- Neues Recht `manage invoices settings`, das den Abschnitt bewacht.
+- Nicht auf der Seite, mit Absicht: `tax.zones`, `tax.product_classes`, `tax.exemptions`,
+  `number.prefix_per_brand` und `seller_per_brand` (verschachtelte Abbildungen — die beiden
+  `*_per_brand` erübrigen sich ohnehin, weil die Seite je Marke arbeitet); `tax.legal_bases`
+  (gehören zu den Regeln, die sie erzeugen); `number.period` und `number.separator`;
+  `tax.prices_include_tax` (dreiwertig, und die Feldtypen tragen zwei — leer heißt hier „noch
+  nicht beantwortet" und ist etwas anderes als netto); `pdf.paper`. Was fehlt, wird auf der
+  Seite benannt statt verschwiegen.
+- Kein Schlüssel des Addons wird beim Registrieren der Routen gelesen, es fällt also keiner
+  aus diesem Grund weg. Ein Test hält das fest.
+
 ## 2.0.0 — 2026-09-05
 
 **Zwei Verhaltensänderungen, die eine bestehende Installation treffen — deshalb die Hauptversion.**
