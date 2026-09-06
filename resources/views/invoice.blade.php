@@ -5,9 +5,25 @@
     Vorschau, die auseinanderlaufen kann. Das ist der eine Kniff, den der
     invoice-generator richtig gemacht hat und der hier übernommen wird.
 
-    Bewusst ohne Bilder und ohne externe Schriften: eine Rechnung, die von einem
-    CDN abhängt, ist in fünf Jahren eine Rechnung ohne Layout, und aufbewahren
-    muss man sie zehn.
+    Bewusst ohne externe Schriften und ohne nachgeladene Bilder: eine Rechnung,
+    die von einem CDN abhängt, ist in fünf Jahren eine Rechnung ohne Layout, und
+    aufbewahren muss man sie zehn.
+
+    **Seit 06.09.2026 trägt sie die Marke — ohne diese Regel zu brechen.**
+    Die Werte kommen aus `$marke` (`Support\MarkenBild`, dahinter
+    `brand-context`), das Logo als *eingebettetes SVG* aus einer Datei auf der
+    Platte, nie als URL und nie als `data:`-URI. Fehlt brand-context oder ist es
+    älter, greifen neutrale Vorgaben: Schwarz auf Weiß, kein Logo. Das ist kein
+    Mangel, das ist eine Rechnung.
+
+    Der Grund steht im Ticket: Adrian ging am 05.09.2026 einen Testkauf durch,
+    und die drei Dinge, die der Käufer danach in der Hand hält, sahen nach
+    nichts aus.
+
+    **Hell bleibt hell.** Der Markengrund `--ink #0a0f1e` trägt am Bildschirm;
+    dieses Dokument wird gedruckt, und eine ganzflächige Tönung kostet dort
+    Toner und Lesbarkeit. Die Marke trägt über Logo, Linien und die
+    Akzentfarbe — nicht über den Untergrund.
 --}}
 <!DOCTYPE html>
 <html lang="de">
@@ -19,7 +35,11 @@
         /* Der Seitenrand gilt nur beim Drucken. Ohne dieses Padding klebt die
            Vorschau am Fensterrand — und die Vorschau ist das, was jemand sieht,
            bevor er druckt. Beim Druck faellt es weg, sonst waere der Rand doppelt. */
-        body { font: 10pt/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "DejaVu Sans", sans-serif; color: #1a1a1a; margin: 0; padding: 20mm 18mm; max-width: 210mm; box-sizing: border-box; }
+        /* Schrift und Schriftfarbe aus der Marke. Der Grund bleibt weiss:
+           gedruckt ist jede Tönung Toner, und `paper` ist am Bildschirm
+           gedacht. Wer eine getönte Rechnung will, sagt es ausdrücklich — hier
+           entscheidet der Drucker mit. */
+        body { font: 10pt/1.55 {{ $marke['font'] }}; color: {{ $marke['ink'] }}; margin: 0; padding: 20mm 18mm; max-width: 210mm; box-sizing: border-box; }
         @media print { body { padding: 0; max-width: none; } }
         /* Zwei Spalten als Tabelle, nicht als Flexbox. Die Vorlage wird
            gedruckt, und keine der reinen PHP-Druckmaschinen kennt Flexbox:
@@ -39,18 +59,42 @@
            Schnitte, und ein Zwischengewicht, das sie nicht findet, laesst sie
            auf ihre Standardschrift zurueckfallen — die Kopfzeile stand dann
            als Serifenschrift ueber einer serifenlosen Tabelle. */
-        th { text-align: left; font-weight: 700; border-bottom: 1.5px solid #1a1a1a; padding: .5rem .4rem; }
+        th { text-align: left; font-weight: 700; border-bottom: 1.5px solid {{ $marke['accent'] }}; padding: .5rem .4rem; }
         td { padding: .5rem .4rem; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
         .zahl { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .summen { margin-left: 48%; width: 52%; margin-top: 1rem; }
         .summen td { border: 0; padding: .25rem .4rem; }
-        .summen .gesamt td { border-top: 1.5px solid #1a1a1a; font-weight: 700; font-size: 11pt; padding-top: .5rem; }
+        .summen .gesamt td { border-top: 1.5px solid {{ $marke['accent'] }}; font-weight: 700; font-size: 11pt; padding-top: .5rem; }
+        /* Die Marke im Kopf. Ein schmaler Streifen, keine Fläche: gedruckt
+           kostet eine Fläche Toner und gewinnt nichts. */
+        .marke { margin-bottom: 1.6rem; padding-bottom: .9rem; border-bottom: 2px solid {{ $marke['accent'] }}; }
+        .marke__logo { max-height: 34px; width: auto; display: block; margin-bottom: .35rem; }
+        .marke__logo svg { max-height: 34px; width: auto; }
+        .marke__wort { font-size: 11pt; font-weight: 700; letter-spacing: .01em; color: {{ $marke['accent'] }}; }
         .hinweis { margin-top: 2.2rem; font-size: 9pt; color: #444; }
         .fuss { margin-top: 3rem; padding-top: .8rem; border-top: 1px solid #e5e5e5; font-size: 8pt; color: #666; }
         .fuss span { margin-right: 2rem; }
     </style>
 </head>
 <body>
+
+{{-- Die Marke, ganz oben. Nur wenn es eine gibt: ohne brand-context steht hier
+     nichts, und die Rechnung fängt an wie bisher. --}}
+@if($marke['logoSvg'] || $marke['name'])
+    <div class="marke">
+        @if($marke['logoSvg'])
+            {{-- Eingebettet, nicht verlinkt. Ausgegeben mit `{!! !!}`, weil ein
+                 SVG Markup IST — die Datei kommt aus einer Einstellung des
+                 Betreibers, nicht aus einer Eingabe von außen, und
+                 `BrandIdentity::logoSvg()` gibt nur zurück, was auf der Platte
+                 liegt und mit `<svg` beginnt. --}}
+            <div class="marke__logo">{!! $marke['logoSvg'] !!}</div>
+        @endif
+        @if($marke['name'])
+            <div class="marke__wort">{{ $marke['name'] }}</div>
+        @endif
+    </div>
+@endif
 
 <table class="kopf">
     <tr>

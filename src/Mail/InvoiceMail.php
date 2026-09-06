@@ -4,6 +4,7 @@ namespace Goldnead\Invoices\Mail;
 
 use Goldnead\BrandContext\Sending\BrandMailer;
 use Goldnead\Invoices\Models\Invoice;
+use Goldnead\Invoices\Support\MarkenBild;
 use Goldnead\Invoices\Support\Money;
 use Illuminate\Mail\Mailable;
 
@@ -39,12 +40,26 @@ class InvoiceMail extends Mailable
             $this->from(...$this->fallbackSender());
         }
 
+        $marke = MarkenBild::fuer($this->invoice->brand_id);
+
         return $this
             ->subject($this->fill((string) config('invoices.delivery.subject', 'Ihre Rechnung :number')))
             ->view('invoices::mail.invoice', [
                 'invoice' => $this->invoice,
                 'seller' => (array) ($this->invoice->seller ?? []),
                 'betrag' => Money::format($this->invoice->gross_cent, $this->invoice->currency),
+                // Wie die Marke aussieht. Das LOGO wird nicht hier eingebettet,
+                // sondern in der Vorlage ueber `$message->embed(...)` — das ist
+                // Laravels Weg, und `embed()` gibt es nur dort, nicht auf dem
+                // Mailable.
+                //
+                // Eingebettet, also als CID-Anhang, und nicht als URL: eine
+                // `https://`-Quelle blockieren Mail-Clients standardmaessig, und
+                // beim ersten Oeffnen stuende da ein leerer Kasten — der erste
+                // Eindruck nach dem Kauf. Ein `data:`-URI werfen viele Clients
+                // heraus. Ein Anhang, auf den das HTML per `cid:` zeigt, kommt
+                // mit der Mail und braucht nichts vom Netz.
+                'marke' => $marke,
             ])
             ->attachData($this->pdf, $this->filename, ['mime' => 'application/pdf']);
     }

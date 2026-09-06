@@ -54,6 +54,19 @@ class Renderer
             // itself lives in `Money`, because the mail that carries the
             // document names the same total in its first sentence.
             'euro' => fn (int $cent) => Money::format($cent, $invoice->currency),
+            // Wie die Marke aussieht — aus EINER Quelle, nicht aus dieser
+            // Vorlage.
+            //
+            // Zusammengesetzt hier statt in der Vorlage, aus demselben Grund
+            // wie der Empfaenger drei Felder weiter oben: das Layout soll
+            // Werte einsetzen, nicht sie beschaffen.
+            //
+            // `class_exists` und nicht `use`: brand-context ist eine optionale
+            // Abhaengigkeit, und eine Rechnung darf nicht daran scheitern, dass
+            // ein Paket fehlt oder aelter ist als diese Fassung. Fehlt es,
+            // greift {@see MarkenBild::vorgabe()} — dieselben Werte, nur ohne
+            // Marke dahinter. Dasselbe Muster wie InvoiceBridge in payments.
+            'marke' => MarkenBild::fuer($invoice->brand_id),
         ]);
     }
 
