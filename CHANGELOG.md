@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.1.1 — 2026-09-08
+
+**The logo was never in the PDF.** The template put it into the document as inline `<svg>`
+markup, and dompdf does not draw an `<svg>` element in HTML. It skips it without a word. Every
+invoice generated since the branding landed carried the wordmark and nothing else.
+
+It was invisible from the code: the HTML was right the whole time, and the last review looked
+at the HTML. It shows up the moment you render the PDF and look at the page, which is what
+found it, on a real invoice from a real shop.
+
+**The test held the defect in place.** It asserted `<svg` was present and that `data:` was
+absent, on the grounds that "the PDF carries the SVG as markup". Both green, both wrong. The
+rule the test exists for is that nothing is fetched over the network, and a `data:` URI is the
+strictest form of that rule rather than a breach of it: the bytes are in the document.
+
+The logo now travels as `data:image/svg+xml;base64`. Measured rather than assumed, by putting
+three forms through dompdf and looking at the result: base64 renders, a filesystem path in
+`src` renders too but only with `chroot` set, and a raw `;utf8,` URI produces an empty box.
+The base64 form is the only one that serves both consumers of this template, because the
+on-screen preview cannot read a filesystem path.
+
+Nothing else changes. An invoice rendered before this release still renders identically apart
+from the logo, and no stored data is touched.
+
 ## 2.1.0 — 2026-09-07
 
 **A settings page in the Control Panel.** Seller identity, number series, the § 19 switch, the
