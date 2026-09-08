@@ -75,7 +75,7 @@
            Graustufen wird aus einer Toenung Grau auf Grau. */
         .marke { margin-bottom: 1.9rem; padding-bottom: 1rem; border-bottom: 2px solid {{ $marke['accent'] }}; }
         .marke__logo { display: block; margin-bottom: .45rem; }
-        .marke__logo svg { height: 30px; width: auto; display: block; }
+        .marke__logo img { height: 30px; width: auto; display: block; }
         .marke__wort { font-size: 10.5pt; font-weight: 700; letter-spacing: -.005em; color: {{ $marke['accent'] }}; }
 
         /* --- Die Kleinschrift, die den Rhythmus traegt ----------------------
@@ -109,12 +109,29 @@
 @if($marke['logoSvg'] || $marke['name'])
     <div class="marke">
         @if($marke['logoSvg'])
-            {{-- Eingebettet, nicht verlinkt. Ausgegeben mit `{!! !!}`, weil ein
-                 SVG Markup IST — die Datei kommt aus einer Einstellung des
-                 Betreibers, nicht aus einer Eingabe von außen, und
-                 `BrandIdentity::logoSvg()` gibt nur zurück, was auf der Platte
-                 liegt und mit `<svg` beginnt. --}}
-            <div class="marke__logo">{!! $marke['logoSvg'] !!}</div>
+            {{-- Eingebettet, nicht verlinkt, und als `data:`-Bild statt als
+                 Inline-Markup.
+
+                 **Inline-SVG hat im PDF nie funktioniert.** dompdf zeichnet ein
+                 `<svg>`-Element im HTML nicht; es überspringt es wortlos. Auf
+                 dem Bildschirm sah die Rechnung deshalb richtig aus, und jede
+                 erzeugte PDF trug seit Einführung des Brandings nur die
+                 Wortmarke. Gefunden am 08.09.2026 an einer echten Rechnung aus
+                 dem Laden, in Graustufen gerendert und angesehen — kein Test
+                 hätte es gemeldet, weil das HTML die ganze Zeit stimmte.
+
+                 `data:image/svg+xml;base64` ist die einzige Form, die beide
+                 Verbraucher dieser Vorlage bedient: dompdf rastert sie, und die
+                 Vorschau im Browser zeigt sie. Ein Dateipfad im `src` täte es
+                 im PDF auch, aber nur mit gesetztem `chroot`, und im Browser
+                 gar nicht. Gemessen, nicht angenommen; die dritte Form
+                 (`;utf8,` roh) rendert einen leeren Kasten.
+
+                 Nichts wird nachgeladen: die Bytes stehen im Dokument. Das ist
+                 dieselbe Zusage wie vorher, nur eingehalten. --}}
+            <div class="marke__logo">
+                <img src="data:image/svg+xml;base64,{{ base64_encode($marke['logoSvg']) }}" alt="">
+            </div>
         @endif
         @if($marke['name'])
             <div class="marke__wort">{{ $marke['name'] }}</div>

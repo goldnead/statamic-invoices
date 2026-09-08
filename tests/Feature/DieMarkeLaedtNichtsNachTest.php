@@ -110,14 +110,33 @@ class DieMarkeLaedtNichtsNachTest extends TestCase
 
         // Da ist sie.
         $this->assertStringContainsString('Testmarke', $html);
-        $this->assertStringContainsString('<svg', $html, 'Das Logo steht eingebettet im Dokument.');
 
-        // Und nichts davon kommt aus dem Netz.
+        // Als `data:`-Bild, und das ist die Korrektur vom 08.09.2026.
+        //
+        // Vorher stand hier `assertStringContainsString('<svg', …)` und, eine
+        // Zeile darunter, `assertStringNotContainsString('data:', …)` mit der
+        // Begruendung „das PDF traegt das SVG als Markup". Beides war gruen und
+        // beides war falsch: **dompdf zeichnet ein `<svg>` im HTML nicht.** Es
+        // ueberspringt es wortlos, und jede erzeugte Rechnung trug seit
+        // Einfuehrung des Brandings nur die Wortmarke. Dieser Test hat den
+        // Fehler nicht gefunden, er hat ihn festgeschrieben.
+        //
+        // Gemessen, nicht vermutet: dieselbe Datei als `data:image/svg+xml;base64`
+        // rastert dompdf, als Dateipfad im `src` auch (aber nur mit `chroot`),
+        // als roher `;utf8,`-URI gibt es einen leeren Kasten.
+        $this->assertStringContainsString(
+            'src="data:image/svg+xml;base64,',
+            $html,
+            'Das Logo steht als eingebettetes Bild im Dokument, nicht als Inline-Markup.',
+        );
+
+        // Und nichts davon kommt aus dem Netz. Das ist die Regel, um die es
+        // hier geht; `data:` verletzt sie nicht, sondern ist ihre strengste
+        // Form: die Bytes stehen im Dokument.
         $this->assertDoesNotMatchRegularExpression('#(src|href)="(https?:)?//#', $html);
         $this->assertStringNotContainsString('@import', $html);
         $this->assertStringNotContainsString('@font-face', $html);
         $this->assertStringNotContainsString('fonts.googleapis', $html);
-        $this->assertStringNotContainsString('data:', $html, 'Auch kein data:-URI — das PDF traegt das SVG als Markup.');
     }
 
     #[Test]
