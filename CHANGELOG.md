@@ -2,420 +2,423 @@
 
 ## 2.1.0 — 2026-09-07
 
-**Eine Einstellungs-Seite im Control Panel.** Verkäuferidentität, Nummernkreis, § 19-Schalter,
-Steuerschalter und die Sätze auf dem Beleg standen bisher nur in der `.env`. Eine `.env` hat
-einen Wert je Schlüssel; ein Mehrmarken-Host hat zwei Anschriften, zwei Steuernummern und
-womöglich zwei Antworten auf § 19. Was auf der Rechnung steht, ist dabei keine Kleinigkeit:
-ohne die Angaben des leistenden Unternehmers ist das Dokument nach § 14 UStG keine Rechnung,
-und die Angaben werden beim Ausstellen eingefroren.
+**A settings page in the Control Panel.** Seller identity, number series, the § 19 switch, the
+tax switches and the sentences on the document were only reachable through `.env` so far. A
+`.env` holds one value per key; a multi-brand host has two addresses, two tax numbers and
+possibly two answers to § 19 UStG, the German small-business rule. What is printed on an invoice
+is no small matter: without the details of the supplying business the document is not an invoice
+under § 14 UStG, and those details are frozen when it is issued.
 
-Gebaut wird die Seite nicht hier. Das Addon meldet nur seine Feldliste
-(`Support\Settings`, `Goldnead\BrandContext\Contracts\ProvidesSettings`) bei der
-`SettingsRegistry` an; Bildschirm, Formular, Validierung, Speicher, Marken und Routen kommen
-aus `statamic-brand-context` (daher `^1.12`). Gespeichert werden nur Abweichungen — was
-niemand ändert, folgt weiter `config/invoices.php`, und ein Paket-Update verschiebt die
-Vorgaben wie bisher.
+The page is not built here. The addon only registers its field list (`Support\Settings`,
+`Goldnead\BrandContext\Contracts\ProvidesSettings`) with the `SettingsRegistry`; screen, form,
+validation, storage, brands and routes come from `statamic-brand-context` (hence `^1.12`). Only
+deviations are stored — whatever nobody changes keeps following `config/invoices.php`, and a
+package update moves the defaults as it did before.
 
-- Neues Recht `manage invoices settings`, das den Abschnitt bewacht.
-- Nicht auf der Seite, mit Absicht: `tax.zones`, `tax.product_classes`, `tax.exemptions`,
-  `number.prefix_per_brand` und `seller_per_brand` (verschachtelte Abbildungen — die beiden
-  `*_per_brand` erübrigen sich ohnehin, weil die Seite je Marke arbeitet); `tax.legal_bases`
-  (gehören zu den Regeln, die sie erzeugen); `number.period` und `number.separator`;
-  `tax.prices_include_tax` (dreiwertig, und die Feldtypen tragen zwei — leer heißt hier „noch
-  nicht beantwortet" und ist etwas anderes als netto); `pdf.paper`. Was fehlt, wird auf der
-  Seite benannt statt verschwiegen.
-- Kein Schlüssel des Addons wird beim Registrieren der Routen gelesen, es fällt also keiner
-  aus diesem Grund weg. Ein Test hält das fest.
+- New permission `manage invoices settings`, guarding the section.
+- Deliberately not on the page: `tax.zones`, `tax.product_classes`, `tax.exemptions`,
+  `number.prefix_per_brand` and `seller_per_brand` (nested maps — and the two `*_per_brand` are
+  redundant anyway, because the page works per brand); `tax.legal_bases` (they belong to the
+  rules that produce them); `number.period` and `number.separator`;
+  `tax.prices_include_tax` (three-valued, and the fieldtypes carry two — empty means "not
+  answered yet" here, which is something other than net); `pdf.paper`. What is missing is named
+  on the page instead of being left out silently.
+- No key of this addon is read while the routes are registered, so none is dropped for that
+  reason. A test holds that in place.
 
 ## 2.0.0 — 2026-09-05
 
-**Zwei Verhaltensänderungen, die eine bestehende Installation treffen — deshalb die Hauptversion.**
-Beide stehen unten, mit dem Weg zurück. Wer EU-B2B-Kunden hat, liest zuerst den Abschnitt „eine
-formal geprüfte Nummer stellt nicht mehr steuerfrei" und lässt danach einmal
-`php artisan invoices:pending-invoices` laufen: dort steht, welche bezahlte Zahlung ohne Beleg
-geblieben ist. Als Minor getaggt hätte diese Änderung sich als Logzeile bemerkbar gemacht, und
-zwar erst nachdem das Geld geflossen war.
+**Two behavioural changes that affect an existing installation — hence the major version.** Both
+are described below, together with the way back. Anyone with EU B2B customers should read the
+section "a merely well-formed number no longer exempts" first and then run
+`php artisan invoices:pending-invoices` once: it says which paid payment was left without a
+document. Tagged as a minor, this change would have announced itself as a log line, and only
+after the money had moved.
 
-Drei Steuerzonen, eine echte USt-IdNr.-Prüfung und ein Tor vor dem Checkout. Anlass ist der
-Verkauf der Addon-Suite ins Ausland: an Unternehmen, überwiegend außerhalb Deutschlands, über
-die eigene Kette. Genau diese Konstellation traf die Stellen, an denen das Addon weniger konnte,
-als eine Auslandsrechnung braucht.
+Three tax zones, a real VAT ID verification and a gate in front of the checkout. The occasion is
+selling the addon suite abroad: to businesses, mostly outside Germany, through our own chain.
+That exact constellation hit the places where the addon could do less than a cross-border
+invoice needs.
 
-### Die USt-IdNr. wird geprüft, nicht nur angesehen
+### The VAT ID is verified, not merely looked at
 
-Bisher wurde die Nummer gegen ein Muster gehalten, und die Rechnung schrieb ehrlich dazu, dass
-nur die Form geprüft wurde. Jetzt fragt `Verification\ViesVerifier` den Bestätigungsdienst der
-EU. Liegt die eigene Nummer in `tax.merchant_vat_id`, ist die Abfrage eine qualifizierte, und die
-Antwort trägt ein Aktenzeichen, das sich Jahre später zitieren lässt.
+So far the number was held against a pattern, and the invoice honestly stated that only its shape
+had been checked. `Verification\ViesVerifier` now asks the EU's confirmation service. If the
+seller's own number is in `tax.merchant_vat_id`, the request is a qualified one, and the answer
+carries a reference number that can be quoted years later.
 
-Das Ergebnis wird **an der Rechnung eingefroren**: Urteil, Zeitpunkt, Dienst und Aktenzeichen in
-vier neuen Spalten. Nachgesehen wird nie beim Rendern — die Antwort von heute ist nicht die, auf
-die sich der Verkäufer damals gestützt hat.
+The result is **frozen on the invoice**: verdict, timestamp, service and reference in four new
+columns. Nothing is looked up while rendering — today's answer is not the one the seller relied
+on back then.
 
-**Ein Ausfall ist kein Urteil.** Timeout, HTTP 500, kaputter Körper, oder VIES' eigenes
-`MS_UNAVAILABLE` innerhalb einer 200 — alles davon endet als `pending`, nie als `invalid`. Der
-Kauf kommt zustande, die Rechnung sagt „USt-IdNr. angegeben, Bestätigung ausstehend / VAT ID
-provided, verification pending", und die Nachprüfung steht in der neuen Utility im Control Panel.
-Damit bleibt die Regel vom 25.08. heil: eine Rechnung fällt nicht mit einem fremden Server.
-`invoices:recheck-vat-ids` fragt später noch einmal und schreibt das Ergebnis in eine eigene
-Tabelle — nie in die Rechnung, die sich nicht ändert.
+**An outage is not a verdict.** Timeout, HTTP 500, broken body, or VIES' own `MS_UNAVAILABLE`
+inside a 200 — all of it ends as `pending`, never as `invalid`. The purchase goes through, the
+invoice says "USt-IdNr. angegeben, Bestätigung ausstehend / VAT ID provided, verification
+pending", and the follow-up sits in the new utility in the Control Panel. That keeps the rule
+from 2026-08-25 intact: an invoice does not fall over with somebody else's server.
+`invoices:recheck-vat-ids` asks again later and writes the result into a table of its own — never
+into the invoice, which does not change.
 
-### Drei Zonen statt siebenundzwanzig Ländersätzen
+### Three zones instead of twenty-seven country rates
 
-`Support\TaxZone`: `de`, `eu-b2b`, `third-country-b2b`. Mehr braucht ein Verkäufer nicht, der nur
-an Unternehmen verkauft — eine Leistung an ein Unternehmen im Ausland wird beim Empfänger
-besteuert (§ 3a Abs. 2 UStG), es fällt in allen drei Fällen keine deutsche Steuer an, und was
-sich unterscheidet, ist der Satz auf dem Beleg. Die Ländersätze bleiben deshalb draußen.
+`Support\TaxZone`: `de`, `eu-b2b`, `third-country-b2b`. A seller who only sells to businesses
+needs no more than that — a service supplied to a business abroad is taxed at the recipient
+(§ 3a Abs. 2 UStG), no German tax arises in any of the three cases, and what differs is the
+sentence on the document. The country rates therefore stay out.
 
-### Verhaltensänderung: § 19 verdeckt Auslands-B2B nicht mehr
+### Behavioural change: § 19 no longer masks cross-border B2B
 
-Bisher beantwortete der Kleinunternehmer-Zweig auch den grenzüberschreitenden B2B-Fall mit
-„keine Umsatzsteuer nach § 19 UStG" und einer Warnung. Das ist die falsche Pflichtangabe: § 19
-ist eine Inlandsregel, und für die Leistung an ein Unternehmen im Ausland liegt der Ort beim
-Empfänger. § 14a Abs. 1 UStG will dort „Steuerschuldnerschaft des Leistungsempfängers" und beide
-USt-IdNrn. auf dem Dokument. Herleitung: `TASKS/suite-steuer-selbsteinschaetzung-2026-09-05.md`,
-Frage (b).
+So far the small-business branch (§ 19 UStG) answered the cross-border B2B case as well, with
+"keine Umsatzsteuer nach § 19 UStG" and a warning. That is the wrong mandatory statement: § 19 is
+a domestic rule, and for a service supplied to a business abroad the place of supply is at the
+recipient. There § 14a Abs. 1 UStG wants "Steuerschuldnerschaft des Leistungsempfängers" (reverse
+charge) and both VAT IDs on the document. Derivation:
+`TASKS/suite-steuer-selbsteinschaetzung-2026-09-05.md`, question (b).
 
-Der neue Weg greift **nur, wenn jemand die Unternehmereigenschaft tatsächlich festgestellt hat**:
-eine bestätigte (oder wegen Ausfalls ausstehende) USt-IdNr. innerhalb der EU, eine Erklärung des
-Käufers außerhalb. Eine bloß formal geprüfte Nummer ändert nichts — der alte Weg antwortet weiter
-wie bisher.
+The new path only applies **where somebody actually established that the buyer is a business**: a
+confirmed (or, after an outage, pending) VAT ID inside the EU, a declaration by the buyer outside
+it. A merely well-formed number changes nothing — the old path keeps answering as before.
 
-Die Sätze für die beiden Auslandszonen stehen jetzt zweisprachig auf dem Beleg: die
-vorgeschriebene deutsche Formulierung, gefolgt von der englischen aus `tax.texts_en`.
+The sentences for the two foreign zones are now printed in both languages: the prescribed German
+wording, followed by the English one from `tax.texts_en`.
 
-### Verhaltensänderung: eine formal geprüfte Nummer stellt nicht mehr steuerfrei
+### Behavioural change: a merely well-formed number no longer exempts
 
-Bisher genügte es, dass eine USt-IdNr. zu einem Muster passte, damit eine EU-Lieferung
-steuerfrei gestellt wurde — mit der vorgeschriebenen § 14a-Formulierung auf dem Beleg und einem
-Hinweis in den internen Notizen, dass nur die Form geprüft wurde. Das ist die Behauptung einer
-Prüfung, die nie stattgefunden hat, und der Beleg sieht dabei völlig unauffällig aus.
+So far it was enough for a VAT ID to match a pattern for an EU supply to be treated as exempt —
+with the prescribed § 14a wording on the document and a note in the internal remarks that only
+the shape had been checked. That asserts a verification that never took place, and the document
+looks entirely unremarkable while it does so.
 
-Jetzt kommt in diesem Fall kein Satz heraus, sondern `undetermined` mit dem Code
-`vat_id_unconfirmed` — die Rechnung wird nicht geschrieben, und der Fall landet dort, wo dieses
-Addon jeden ungeklärten Fall hinlegt: bei einem Menschen. Wer bewusst mit einer reinen
-Formatprüfung leben will, setzt `tax.vat_id_check.enabled` auf `false`; dann verhält sich alles
-wie vorher, samt der alten Notiz. Die Entscheidung ist damit ausdrücklich statt voreingestellt.
+In that case the result is now no sentence at all but `undetermined` with the code
+`vat_id_unconfirmed` — the invoice is not written, and the case ends up where this addon puts
+every unresolved case: with a person. Anyone who deliberately wants to live with a pure format
+check sets `tax.vat_id_check.enabled` to `false`; everything then behaves as before, including
+the old note. The decision is explicit rather than preset.
 
-Die betroffenen Unit-Tests übergeben den Prüfstand jetzt sichtbar (`VatIdStatus::Valid`). Dass
-sie ihn vorher weggelassen haben und trotzdem grün waren, war genau das Problem.
+The affected unit tests now pass the verification state visibly (`VatIdStatus::Valid`). That they
+used to leave it out and were green regardless was precisely the problem.
 
-### Das Tor vor dem Checkout
+### The gate in front of the checkout
 
-`Support\BuyerAdmission` beantwortet, ob ein Käufer kaufen darf und in welcher Zone. Abgewiesen
-wird: ohne Land, ohne Firmenname, EU ohne bestätigte USt-IdNr., Drittland ohne Bestätigung der
-unternehmerischen Nutzung. Zwei Oberflächen:
+`Support\BuyerAdmission` answers whether a buyer may buy and in which zone. Turned away are:
+no country, no company name, EU without a confirmed VAT ID, third country without a confirmation
+of business use. Two surfaces:
 
-- Die Middleware `invoices.business-buyer`, die ein Host auf seine eigene Checkout-Route legt.
-  Sie ist die Durchsetzung und setzt das eingefrorene Ergebnis selbst in die Anfrage, damit ein
-  Client kein „bestätigt" unterschieben kann.
-- `POST /!/invoices/buyer-check`, damit das Formular die Antwort schon kennt, während der Käufer
-  tippt, statt nach dem Start der Zahlung.
+- The middleware `invoices.business-buyer`, which a host puts on its own checkout route. It is
+  the enforcement and writes the frozen result into the request itself, so a client cannot slip a
+  "confirmed" underneath.
+- `POST /!/invoices/buyer-check`, so the form already knows the answer while the buyer is typing,
+  instead of after the payment has started.
 
-Ein Ausfall des Prüfdienstes weist niemanden ab.
+An outage of the verification service turns nobody away.
 
 ### Control Panel
 
-Neue Utility „USt-IdNr.-Prüfungen": die Rechnungen, deren Nummer beim Kauf nicht bestätigt werden
-konnte, mit dem, was eine spätere Nachfrage ergeben hat. Der Bildschirm zeigt und handelt nicht —
-was aus einer Nummer folgt, die eine Woche später ungültig ist, ist eine Entscheidung, und
-§ 6a Abs. 4 UStG schützt das Vertrauen auf die Auskunft vom Kauftag.
+New utility "VAT ID checks": the invoices whose number could not be confirmed at the time of
+purchase, together with what a later enquiry produced. The screen shows and does not act — what
+follows from a number that is invalid a week later is a decision, and § 6a Abs. 4 UStG protects
+reliance on the information given on the day of the purchase.
 
-Die Liste enthält nicht nur die ausstehenden Prüfungen, sondern auch die Belege, auf denen eine
-Nummer steht und **nie** jemand gefragt hat: ältere Rechnungen, oder eine Zahlung, die den
-Schreiber am Checkout vorbei erreicht hat. Sonst wäre das eine Klasse von Rechnungen, die keine
-Auswertung zählen kann, weil keine von ihr weiß. Bildschirm und `invoices:recheck-vat-ids` lesen
-dieselbe Definition (`Invoice::scopeAwaitingVatIdConfirmation`), damit die Liste nichts zeigt, was
-das Kommando nie anfasst, und umgekehrt.
+The list contains not only the pending checks but also the documents that carry a number **nobody
+ever asked about**: older invoices, or a payment that reached the writer past the checkout.
+Otherwise that would be a class of invoices no evaluation can count, because none of them knows
+about it. The screen and `invoices:recheck-vat-ids` read the same definition
+(`Invoice::scopeAwaitingVatIdConfirmation`), so the list shows nothing the command never touches,
+and the other way round.
 
-`tax.business_only.enabled` tut jetzt, was der Kommentar daneben immer versprach: auf `false` hört
-das Tor auf, Verbraucher abzuweisen. Vorher las das Tor nur `require_company`, und der Schalter war
-wirkungslos, ohne das zu sagen.
+`tax.business_only.enabled` now does what the comment beside it always promised: on `false` the
+gate stops turning consumers away. Before that the gate only read `require_company`, and the
+switch had no effect without saying so.
 
-### Der Beleg nennt die Firma
+### The document names the company
 
-Das Tor verlangt einen Firmennamen, und der kam bisher nicht weiter als bis zum Tor: auf der
-Rechnung stand, wer das Formular ausgefüllt hat. § 14 Abs. 4 Nr. 1 UStG will den Leistungsempfänger
-genannt haben, und das ist bei einem Geschäftskauf die Firma — sonst kann die Buchhaltung des
-Käufers den Beleg nicht gegen sein Unternehmen buchen, was der Grund war, die USt-IdNr. überhaupt
-anzugeben. Die Person geht nicht verloren, sie steht als `meta.buyer_contact` am Beleg.
+The gate requires a company name, and so far that name got no further than the gate: the invoice
+stated who had filled in the form. § 14 Abs. 4 Nr. 1 UStG wants the recipient of the supply named,
+and on a business purchase that is the company — otherwise the buyer's bookkeeping cannot post the
+document against their business, which was the reason for giving the VAT ID in the first place.
+The person is not lost, they sit on the document as `meta.buyer_contact`.
 
-### Gefragt wird nur, wo die Antwort etwas entscheidet
+### The question is only asked where the answer decides something
 
-Inlands- und Drittlandsnummern gehen nicht mehr an VIES. Bei einem deutschen Käufer entscheidet die
-Bestätigung steuerlich nichts, kostet aber im Ausfall etwas Echtes: die Rechnung trüge `pending` und
-stünde dauerhaft auf der Prüfliste. Und VIES kennt nur EU-Nummern — eine US-Steuernummer dorthin zu
-schicken heißt, eine Antwort auf eine Frage zu bekommen, die niemand gestellt hat. Beide Nummern
-stehen weiter auf dem Beleg, jetzt mit dem Vermerk „USt-IdNr. angegeben, nicht bestätigt".
+Domestic and third-country numbers no longer go to VIES. For a German buyer the confirmation
+decides nothing in tax terms, but costs something real in an outage: the invoice would carry
+`pending` and would sit on the check list permanently. And VIES only knows EU numbers — sending a
+US tax number there means getting an answer to a question nobody asked. Both numbers still appear
+on the document, now with the remark "USt-IdNr. angegeben, nicht bestätigt" (VAT ID given, not
+confirmed).
 
-### Neue Konfiguration
+### New configuration
 
 `tax.vat_id_check` (`enabled`, `service`, `timeout`, `cache_hours`), `tax.business_only`
-(`enabled`, `require_company`), `tax.texts_en`. Migration
-`2026_09_05_090000_add_vat_id_verification_to_invoices` legt die vier Spalten plus `tax_zone` auf
-`invoices` an und die Tabelle `invoice_vat_id_checks`.
+(`enabled`, `require_company`), `tax.texts_en`. The migration
+`2026_09_05_090000_add_vat_id_verification_to_invoices` adds the four columns plus `tax_zone` to
+`invoices`, and the table `invoice_vat_id_checks`.
 
-### Aufräumen am Rand
+### Tidying at the edge
 
-Routen werden jetzt aus `boot()` registriert statt aus `bootAddon()`. Letzteres läuft aus einem
-`Statamic::booted()`-Callback, und eine dort angemeldete Route steht in der Sammlung, ohne je zu
-greifen — sie funktionierte nur, weil in einer App etwas anderes zuerst registriert.
+Routes are now registered from `boot()` instead of from `bootAddon()`. The latter runs from a
+`Statamic::booted()` callback, and a route registered there sits in the collection without ever
+taking effect — it only worked because something else in an app registered first.
 
 ## 1.3.1 — 2026-09-05
 
-Kein Verhalten geändert. Das Addon schreibt die Rechnungen, mit denen die Suite verkauft wird, und
-war das einzige der Familie ohne Lizenzdatei und ohne CI.
+No behaviour changed. This addon writes the invoices the suite is sold with, and it was the only
+one in the family without a licence file and without CI.
 
-### Lizenz
+### Licence
 
-`LICENSE.md` liegt jetzt bei, wortgleich mit statamic-payments und den übrigen Geschwistern
-(proprietäre Lizenz, Copyright Adrian Goldner). `composer.json` sagte schon `proprietary`; die
-Datei fehlte.
+`LICENSE.md` now ships with it, word for word the same as in statamic-payments and the remaining
+siblings (proprietary licence, copyright Adrian Goldner). `composer.json` already said
+`proprietary`; the file was missing.
 
 ### CI
 
-`.github/workflows/tests.yml` nach dem Vorbild der Familie: Matrix PHP 8.2 bis 8.4 × Laravel ^12
-und ^13 × prefer-lowest und prefer-stable (PHP 8.2 mit Laravel 13 ausgeschlossen, das verlangt
-^8.3), dazu Pint als Prüfung, addon-lint als Gate und PHPStan. Der Testlauf ist `vendor/bin/pest`,
-nicht phpunit: die Steuerregeln sind in Pest-Syntax geschrieben, und Pest lässt PHPUnit-Klassen
-nur mitlaufen, wenn es selbst der Runner ist. Kein `dist`-Job, es gibt kein Control-Panel-Bundle.
+`.github/workflows/tests.yml` following the family's pattern: a matrix of PHP 8.2 to 8.4 ×
+Laravel ^12 and ^13 × prefer-lowest and prefer-stable (PHP 8.2 with Laravel 13 excluded, which
+requires ^8.3), plus Pint as a check, addon-lint as a gate and PHPStan. The test run is
+`vendor/bin/pest`, not phpunit: the tax rules are written in Pest syntax, and Pest only carries
+PHPUnit classes along when it is the runner itself. No `dist` job, there is no Control Panel
+bundle.
 
-### Werkzeug
+### Tooling
 
-- **Larastan** in `require-dev`, `phpstan.neon` auf Level 5 über `src/`. Die Insights-Metriken
-  extenden eine Klasse aus einem Addon, das nur `suggest` ist; die Stand-ins unter `tests/Fakes/`
-  werden deshalb gescannt, nicht analysiert. Die Baseline trägt zwei Einträge, beide `view-string`
-  auf `invoices::…`-Views: Larastan prüft, ob die View existiert, und kennt den Addon-Namespace im
-  Analyse-Kontext nicht. `InvoiceCounter` hat jetzt die `@property`-Zeilen, die PHPStan brauchte.
-- **Pint** nimmt `tests/Fakes/insights-contracts.php` aus. Die Datei ist eine byte-getreue Kopie
-  der Signaturen aus statamic-insights; ein Formatierer darauf würde genau die Eigenschaft
-  zerstören, die ihren Wert ausmacht.
-- **`.gitattributes`** mit `export-ignore` für Tests, CI und Werkzeugkonfiguration; eine Site, die
-  das Addon installiert, lädt sie nicht mehr mit.
-- **`addon-lint.json`** waivt zwei Regeln mit Begründung: `release.readme` (die Regel sucht
-  Überschriftenwörter wie „Usage"; die README erklärt die Nutzung unter „The number", „The PDF",
-  „Sending it to the buyer") und `testing.addon-testcase` (die Testbasis ist absichtlich von Hand
-  gebaut, siehe `tests/TestCase.php`; der Umbau auf `AddonTestCase` ist ein eigener Schritt).
-  Lint-Score 79 → 100.
+- **Larastan** in `require-dev`, `phpstan.neon` at level 5 over `src/`. The Insights metrics
+  extend a class from an addon that is only a `suggest`; the stand-ins under `tests/Fakes/` are
+  therefore scanned, not analysed. The baseline carries two entries, both `view-string` on
+  `invoices::…` views: Larastan checks whether the view exists and does not know the addon
+  namespace in the analysis context. `InvoiceCounter` now has the `@property` lines PHPStan
+  needed.
+- **Pint** excludes `tests/Fakes/insights-contracts.php`. The file is a byte-for-byte copy of the
+  signatures from statamic-insights; running a formatter over it would destroy exactly the
+  property that makes it worth having.
+- **`.gitattributes`** with `export-ignore` for tests, CI and tool configuration; a site that
+  installs the addon no longer downloads them.
+- **`addon-lint.json`** waives two rules with a reason: `release.readme` (the rule looks for
+  heading words such as "Usage"; the README explains usage under "The number", "The PDF",
+  "Sending it to the buyer") and `testing.addon-testcase` (the test base is deliberately built by
+  hand, see `tests/TestCase.php`; moving it to `AddonTestCase` is a step of its own). Lint score
+  79 → 100.
 
-### Tests gegen statamic-payments 1.17
+### Tests against statamic-payments 1.17
 
-Zwei Tests setzten stillschweigend payments 1.11 voraus, den Stand des lokalen `vendor/`. Gegen
-1.17.1, was `^1.14` heute auflöst, fielen sie:
+Two tests silently assumed payments 1.11, the state of the local `vendor/`. Against 1.17.1, which
+is what `^1.14` resolves to today, they failed:
 
-- `InsightsMetricsTest` verglich die **gesamte** Metrik-Registry mit den vier eigenen Einträgen.
-  payments trägt seit 1.14 selbst Metriken ein. Jetzt werden nur die `invoices.`-Handles verglichen.
-- `TheBrandComesFromThePaymentTest` prüfte eine Installation, deren `payments`-Tabelle noch keine
-  `brand_id`-Spalte hat. Diesen Zustand schließt `^1.14` seit 048fde2 aus (die Spalte kam mit 1.13),
-  und payments 1.17 setzt sie beim Anlegen selbst; der Test bewies nur noch, dass man in eine
-  gelöschte Spalte nicht schreiben kann. Entfernt, mit Vermerk an der Stelle.
+- `InsightsMetricsTest` compared the **entire** metric registry against its own four entries.
+  payments has registered metrics of its own since 1.14. Only the `invoices.` handles are
+  compared now.
+- `TheBrandComesFromThePaymentTest` tested an installation whose `payments` table has no
+  `brand_id` column yet. `^1.14` has ruled that state out since 048fde2 (the column arrived with
+  1.13), and payments 1.17 sets it on insert itself; the test only proved that you cannot write
+  into a dropped column. Removed, with a note at the place.
 
 ## 1.3.0 — 2026-09-02
 
-### Die Rechnungs-Mail steht im Kommunikationsprotokoll der Zahlung
+### The invoice mail appears in the payment's communication log
 
-`InvoiceDelivery::send()` trägt eine zugestellte Rechnung über `PaymentLog::mail($paymentId,
-'invoice', $to, $subject, 'sent', ['invoice' => $number])` in `payment_communications` von
-statamic-payments ein (ab dessen 1.16, Detailseite der Zahlung). Per `class_exists` auf die
-Fassade; ein älteres payments ohne sie bleibt unberührt, und ein Fehler beim Schreiben bricht dort
-nie die Zustellung.
+`InvoiceDelivery::send()` records a delivered invoice through `PaymentLog::mail($paymentId,
+'invoice', $to, $subject, 'sent', ['invoice' => $number])` in statamic-payments'
+`payment_communications` (from its 1.16 onwards, on the payment's detail page). Via
+`class_exists` on the facade; an older payments without it stays untouched, and a failure while
+writing there never breaks the delivery.
 
-### Neu: § 19 warnt beim Verbraucher im EU-Ausland
+### Added: § 19 warns for a consumer elsewhere in the EU
 
-`TaxRules` setzte bei aktiver Kleinunternehmerregelung alles auf 0 % und warnte nur im B2B-Fall,
-also wenn eine USt-IdNr vorlag. Für einen Verbraucher in einem anderen Mitgliedstaat kam nichts —
-dabei ist das der Fall, in dem trotz § 19 Steuer im Käuferland anfallen kann: Bei digitalen
-Leistungen liegt der Leistungsort beim Käufer (§ 3a Abs. 5 UStG, bei Waren § 3c), sobald der
-EU-weite B2C-Umsatz die 10.000-€-Schwelle übersteigt. Die deutsche Befreiung reicht dann nur über
-die EU-Kleinunternehmerregelung (§ 19a UStG, seit 01.01.2025, „EX"-Nummer) dorthin; ohne sie ist
-Umsatzsteuer des Käuferlandes fällig (OSS). Unterhalb der Schwelle bleibt der Leistungsort in
-Deutschland und § 19 greift wie gehabt.
+With the small-business rule (§ 19 UStG) active, `TaxRules` set everything to 0 % and warned only
+in the B2B case, that is, when a VAT ID was present. For a consumer in another member state
+nothing came out — and that is the case where tax can fall due in the buyer's country despite
+§ 19: for digital services the place of supply is at the buyer (§ 3a Abs. 5 UStG, for goods
+§ 3c), as soon as EU-wide B2C turnover exceeds the €10,000 threshold. The German exemption then
+only reaches there through the EU small-business scheme (§ 19a UStG, since 2025-01-01, "EX"
+number); without it, VAT of the buyer's country is due (OSS). Below the threshold the place of
+supply stays in Germany and § 19 applies as before.
 
-Zwei neue Schlüssel unter `tax.small_business`, beide nicht berechnet, weil beide Tatsachen über
-das Jahr sind und nicht über die Zeile: `eu_threshold_mode` (`'below'`, Standard, oder `'above'`)
-und `eu_scheme` (`false`, Standard). Über der Schwelle ohne EU-Regelung trägt das Ergebnis eine
-Warnung im `notes`-Feld, derselbe Weg wie beim B2B-Fall. Mit EU-Regelung nennt `tax_reason` die
-§ 19a-Befreiung (`texts.small_business_eu`, `legal_bases.small_business_eu`) statt § 19. Ein
-unbekannter Wert für `eu_threshold_mode` wirft, wie ein unbekannter Schlüssel.
+Two new keys under `tax.small_business`, neither of them computed, because both are facts about
+the year and not about the line: `eu_threshold_mode` (`'below'`, the default, or `'above'`) and
+`eu_scheme` (`false`, the default). Above the threshold without the EU scheme the result carries
+a warning in the `notes` field, the same path as in the B2B case. With the EU scheme, `tax_reason`
+names the § 19a exemption (`texts.small_business_eu`, `legal_bases.small_business_eu`) instead of
+§ 19. An unknown value for `eu_threshold_mode` throws, like an unknown key.
 
-Das ist die Lesart des Gesetzes, mit der das Addon arbeitet, keine Steuerberatung; sie ist noch
-nicht steuerlich geprüft.
+This is the reading of the law the addon works with, not tax advice; it has not been reviewed by
+a tax adviser yet.
 
-### Behoben: die Hinweise des Steuerrechners erreichten niemanden
+### Fixed: the tax calculator's notes reached nobody
 
-`TaxResult::notes` trug sie von Anfang an, und der `InvoiceWriter` ließ sie fallen: er übernahm
-Grund und Mechanismus und sonst nichts. Die B2B-Warnung unter § 19 stand damit seit 1.0.0 auf
-keinem Weg, den ein Mensch sieht. Jetzt schreibt der Writer je Hinweis
-`Log::warning('invoices: tax note', ['payment' => …, 'product' => …, 'note' => …])`, bevor er
-entscheidet, ob er schreibt; legt sie an der Rechnung unter `meta.tax_notes` ab (Liste aus
-`product` und `note`), von wo die Gutschrift sie mitnimmt; und `invoices:pending` gibt sie je
-Zahlung unter der Tabelle aus, mit und ohne `--write`. Neu dafür: `InvoiceWriter::taxNotesFor()`.
-Auf dem Dokument stehen sie nicht, sie sind für die Prüfung, nicht für den Käufer.
+`TaxResult::notes` carried them from the start, and the `InvoiceWriter` dropped them: it took
+over the reason and the mechanism and nothing else. The B2B warning under § 19 was therefore on
+no path a human sees, ever since 1.0.0. The writer now logs each note as
+`Log::warning('invoices: tax note', ['payment' => …, 'product' => …, 'note' => …])` before it
+decides whether to write; stores them on the invoice under `meta.tax_notes` (a list of `product`
+and `note`), from where the credit note takes them along; and `invoices:pending` prints them per
+payment underneath the table, with and without `--write`. New for that:
+`InvoiceWriter::taxNotesFor()`. They do not appear on the document; they are for the audit, not
+for the buyer.
 
 ## 1.2.1 — 2026-08-29
 
-### Angehoben: `statamic-payments ^1.14`
+### Raised: `statamic-payments ^1.14`
 
-Die Marke der Rechnung kommt jetzt von der Zahlung, und die Spalte `brand_id` gibt es dort erst
-seit 1.14. Mit einer älteren Fassung liefe der Code zwar durch — er fiele auf die Standardmarke
-zurück, mit einer Log-Warnung —, aber genau das ist der Fehler, den 1.2.0 behebt. Eine Anforderung,
-die den behobenen Zustand wieder zulässt, wäre keine.
+The invoice's brand now comes from the payment, and the `brand_id` column has only existed there
+since 1.14. With an older version the code would run through — it would fall back to the default
+brand, with a log warning — but that is exactly the defect 1.2.0 fixes. A requirement that allows
+the fixed state to return would be no requirement at all.
 
-Eigene Patch-Version, weil 1.2.0 zu diesem Zeitpunkt bereits veröffentlicht war. Ein
-veröffentlichter Tag wird nicht verschoben.
+A patch version of its own, because 1.2.0 had already been published at that point. A published
+tag is not moved.
 
 ## 1.2.0 — 2026-08-29
 
-### Neu: vier Zahlen in Insights
+### Added: four figures in Insights
 
-Ausgestellte Dokumente, netto, brutto und Umsatzsteuer, aufteilbar nach Art, Käuferland und
-Steuersatz. Eine Gutschrift geht überall wieder ab, deshalb summiert jede Geldzahl vorzeichen-
-richtig — ein Storno kann eine Kachel unter null drücken, und das ist richtig so.
+Documents issued, net, gross and VAT, splittable by kind, buyer country and tax rate. A credit
+note subtracts everywhere, so every money figure sums with the correct sign — a reversal can push
+a tile below zero, and that is as it should be.
 
-### Behoben: die Kachel zeigte den Umsatz fremder Marken
+### Fixed: the tile showed other brands' turnover
 
-Bei gewählter Marke zeigte die Gruppe *Rechnungen* vier Dokumente **dreier anderer Marken**. Nicht
-bloß eine falsche Zahl: der Umsatz eines Kunden auf dem Schirm eines anderen. Die Regel steht jetzt
-einmal in `TableMetric::brandScoped()`; hier wird nur noch die Spalte genannt.
+With a brand selected, the *Invoices* group showed four documents belonging to **three other
+brands**. Not merely a wrong figure: one customer's turnover on another customer's screen. The
+rule now lives once, in `TableMetric::brandScoped()`; all that is named here is the column.
 
-Zwei Abfragen erreichen die Tabelle nicht über den zentralen Weg und tragen die Marke ausdrücklich.
-Die zweite davon ist die unangenehmere: `filterOptions()` las die Währungsliste über alle Marken,
-und die meistgenutzte Währung ging von dort in das `where` jeder Kachel. Eine Marke, die nur in
-Franken abrechnet, bekam auf einer sonst in Euro rechnenden Installation jede Zahl auf eine Währung
-gefiltert, die sie nie benutzt, und las 0. **Eine Marke mit Belegen erschien als eine ohne** — das
-Leck von hinten.
+Two queries do not reach the table through the central path and carry the brand explicitly. The
+second of them is the more unpleasant one: `filterOptions()` read the currency list across all
+brands, and the most used currency went from there into the `where` of every tile. A brand that
+invoices only in francs had, on an otherwise euro-based installation, every figure filtered to a
+currency it never uses, and read 0. **A brand with documents appeared as one without** — the leak
+from the other side.
 
-Dazu war das Zeitfenster der Steuersatz-Aufteilung einschließend und verlor auf einer
-Millisekunden-Spalte die letzte Sekunde des Zeitraums.
+On top of that, the time window of the tax-rate split was inclusive and lost the last second of
+the period on a millisecond column.
 
 
-### Fixed — die Marke der Rechnung war die des Prozesses, nicht die des Kaufs
+### Fixed — the invoice's brand was the process's, not the purchase's
 
-`brandIdFor()` fragte den Umgebungskontext, und der Zweig, der das absichern sollte, war tot:
-`currentId()` hat Rückgabetyp `int` und fällt auf die Standardmarke zurück, ein `null` gab es nie.
-Im Mehrmarkenbetrieb ohne gesetzten Kontext — Webhook, Konsolenlauf, Folgeabbuchung, also genau
-dort, wo Rechnungen entstehen — bekam die Rechnung damit still die Nummernreihe der Standardmarke,
-seit dem PDF-Commit zusätzlich deren Absender. Kein Fehler, kein Log, nur ein falsches Ergebnis auf
-einem Dokument, das sich nicht mehr ändern lässt.
+`brandIdFor()` asked the ambient context, and the branch that was meant to safeguard that was
+dead: `currentId()` has the return type `int` and falls back to the default brand, a `null` never
+existed. In multi-brand operation with no context set — a webhook, a console run, a recurring
+charge, that is, exactly where invoices come into being — the invoice therefore silently got the
+default brand's number series, and since the PDF commit its sender address as well. No error, no
+log, just a wrong result on a document that cannot be changed afterwards.
 
-Die Marke kommt jetzt von der Zahlung. `statamic-payments` stempelt `brand_id` beim Anlegen der
-Zeile, in der Anfrage, in der der Käufer wirklich war, und eine Folgeabbuchung erbt die Marke der
-Zeile, zu der sie gehört. Der Kommentar über der Methode behauptete das Gegenteil („a brand is not
-recoverable from the payment") — er stimmte, bis es diese Spalte gab.
+The brand now comes from the payment. `statamic-payments` stamps `brand_id` when it creates the
+row, in the request the buyer was actually in, and a recurring charge inherits the brand of the
+row it belongs to. The comment above the method claimed the opposite ("a brand is not recoverable
+from the payment") — it was true until that column existed.
 
-**Nichts wird dadurch verweigert.** Eine Zahlung mit `brand_id = 0` im Mehrmarkenbetrieb gehört
-keiner Marke (Altbestand ohne Backfill, oder ein Checkout, während brand-context nicht antworten
-konnte) und bekommt ihre Rechnung wie bisher — wer bezahlt hat, hat Anspruch auf den Beleg, und ein
-späterer Lauf könnte ihn nicht nachholen, ohne eine Lücke in einer lückenlosen Reihe zu lassen.
-Neu ist nur, dass dieser Rückfall im Log steht. Der Einmarkenbetrieb bleibt bei `0`, und eine
-ältere Installation von `statamic-payments` ohne die Spalte läuft in keinen SQL-Fehler.
+**Nothing is refused because of this.** A payment with `brand_id = 0` in multi-brand operation
+belongs to no brand (legacy data without a backfill, or a checkout while brand-context could not
+answer) and gets its invoice as before — whoever paid is entitled to the document, and a later
+run could not make up for it without leaving a hole in a gapless series. All that is new is that
+this fallback is logged. Single-brand operation stays at `0`, and an older installation of
+`statamic-payments` without the column runs into no SQL error.
 
-`Exceptions\BrandUnknown` ist damit ersatzlos weg. Sie wurde nie geworfen, und eine Ausnahme, die
-niemand wirft, beschreibt ein Verhalten, das es nicht gibt.
+`Exceptions\BrandUnknown` is therefore gone without replacement. It was never thrown, and an
+exception nobody throws describes a behaviour that does not exist.
 
-### Added — `invoices:brand-check` misst, was vorher falsch abgelegt wurde
+### Added — `invoices:brand-check` measures what was filed wrongly before
 
-Der Vergleich von `invoices.brand_id` gegen `payments.brand_id`: Abweichungen sind genau die
-Rechnungen, die auf dem stillen Weg entstanden sind. Der Befehl nennt Nummer, erwartete und
-tatsächliche Marke und **schreibt nichts um** — die Nummer stammt aus dem lückenlosen Zähler einer
-Marke und ist dort gezählt worden; sie umzuhängen hinterließe ein Loch in der einen Reihe und einen
-Fremdkörper in der anderen. Fehlt die Spalte in `payments`, sagt er das, statt eine leere Liste wie
-eine Entwarnung aussehen zu lassen.
+The comparison of `invoices.brand_id` against `payments.brand_id`: the deviations are exactly the
+invoices that came into being on the silent path. The command names the number, the expected and
+the actual brand and **rewrites nothing** — the number comes from one brand's gapless counter and
+was counted there; moving it across would leave a hole in one series and a foreign body in the
+other. If the column in `payments` is missing, it says so instead of letting an empty list look
+like an all-clear.
 
-### Added — die Rechnung wird ein PDF und geht an den Käufer
+### Added — the invoice becomes a PDF and goes to the buyer
 
-Bis hierher existierte die Rechnung nur als HTML, und das war eine bewusste Auslassung: eine
-Druckmaschine ist eine Infrastruktur-Entscheidung, und die trifft ein Addon nicht für seinen Host.
-Der Ausweg ist ein Contract statt einer festen Klasse — `Contracts\PdfRenderer` hängt im Container,
-mitgeliefert wird `DompdfRenderer`. **dompdf**, weil es reines PHP ist: jede andere Kandidatin
-(Browsershot, wkhtmltopdf) hätte mit dem Addon eine Node-Laufzeit oder ein Systembinary installiert.
+Up to here the invoice existed only as HTML, and that was a deliberate omission: a print engine is
+an infrastructure decision, and an addon does not make that for its host. The way out is a
+contract instead of a fixed class — `Contracts\PdfRenderer` sits in the container, `DompdfRenderer`
+ships with it. **dompdf**, because it is pure PHP: any other candidate (Browsershot,
+wkhtmltopdf) would have installed a Node runtime or a system binary along with the addon.
 
-Erzeugt wird aus derselben Blade-Vorlage, die schon die Vorschau zeigt. Zwei Layouts, die
-auseinanderlaufen können, kann ein gedrucktes Steuerdokument sich nicht leisten.
+It is generated from the same Blade template the preview already shows. A printed tax document
+cannot afford two layouts that are free to drift apart.
 
-**Zweimal erzeugen ergibt dieselbe Datei, Byte für Byte.** dompdf stempelt sonst die Wanduhr
-(`CreationDate`, `ModDate`) und eine gewürfelte Dokument-ID in jede Datei; beides wird jetzt aus der
-Rechnung selbst abgeleitet. Ohne das wäre der zweite Abruf in neun Jahren ein anderes Dokument als
-das, was der Käufer hat — sichtbar niemandem, bis es eine Frage bei einer Prüfung ist.
+**Generating twice produces the same file, byte for byte.** Otherwise dompdf stamps the wall clock
+(`CreationDate`, `ModDate`) and a randomly drawn document ID into every file; both are now derived
+from the invoice itself. Without that, fetching it again nine years from now would be a different
+document from the one the buyer has — visible to nobody until it is a question during an audit.
 
-Zugestellt wird auf `InvoiceIssued`, nicht per Cron: so geht genau das hinaus, was geschrieben
-wurde, einmal. Fehlt eine Pflichtangabe, entsteht weiterhin **keine** Rechnung — der Versandweg
-bekommt nur fertige Dokumente zu sehen und kann an dieser Prüfung nicht vorbei.
+Delivery happens on `InvoiceIssued`, not by cron: that way exactly what was written goes out, once.
+If a mandatory detail is missing, **no** invoice comes into being, as before — the delivery path
+only ever sees finished documents and cannot get past that check.
 
-Der Versand läuft über den `BrandMailer` aus brand-context, damit die Absenderidentität zur Marke
-gehört. Eine Marke, die eine Mail-Identität angibt und die Adresse weglässt, sendet **gar nicht**;
-eine Marke, die nichts angegeben hat, fällt auf den auf *dieser* Rechnung eingefrorenen Verkäufer
-zurück, nicht auf den host-weiten Absender — der gehört im Mehrmarkenbetrieb einer anderen Marke.
+Sending runs through the `BrandMailer` from brand-context, so that the sender identity belongs to
+the brand. A brand that states a mail identity and omits the address sends **nothing at all**; a
+brand that has stated nothing falls back to the seller frozen on *this* invoice, not to the
+host-wide sender — in multi-brand operation that one belongs to a different brand.
 
-### Changed — brand-context ist jetzt eine echte Abhängigkeit
+### Changed — brand-context is now a real dependency
 
-Vorher `suggest`. Wer Rechnungen verschickt, braucht den `BrandMailer`; eine Zustellung, die je nach
-Installation still unter fremdem Namen hinausgeht, ist keine kleinere Version des Features. Die
-übrigen Addons der Familie, die Mail versenden, halten es seit August genauso.
+Previously a `suggest`. Anyone who sends invoices needs the `BrandMailer`; a delivery that,
+depending on the installation, silently goes out under somebody else's name is not a smaller
+version of the feature. The remaining addons in the family that send mail have handled it the same
+way since August.
 
-### Fixed — `invoices:pending` brach bei einer fehlenden Pflichtangabe ab
+### Fixed — `invoices:pending` aborted on a missing mandatory detail
 
-Die Schleife fing nur `RateUndetermined`. Eine `DetailsMissing` flog bis nach oben, der Lauf endete
-mit einem Stacktrace, und die übrigen Zahlungen wurden nicht einmal mehr angesehen — bei einem
-Befehl, dessen einzige Aufgabe es ist, zu sagen, woran es liegt.
+The loop caught only `RateUndetermined`. A `DetailsMissing` flew all the way up, the run ended
+with a stack trace, and the remaining payments were not even looked at — in a command whose only
+job is to say what the matter is.
 
-### Changed — die Vorlage kommt ohne Flexbox aus
+### Changed — the template does without flexbox
 
-Kopfzeile, Kennzahlen und Fußzeile lagen auf `display: flex`, und keine reine PHP-Druckmaschine
-kennt das: der Absender wäre unter dem Empfänger gelandet statt neben ihm. Jetzt Tabelle und
-Ränder, die Browser und Druck gleich verstehen. Die Tabellenköpfe stehen auf `font-weight: 700`
-statt 600 — ein Zwischengewicht findet die Druckmaschine nicht und fällt auf ihre Serifenschrift
-zurück.
+The header, the key figures and the footer were on `display: flex`, and no pure-PHP print engine
+knows that: the sender would have ended up below the recipient instead of beside them. Tables and
+margins now, which browsers and print understand alike. The table headings are on
+`font-weight: 700` instead of 600 — the print engine does not find an intermediate weight and
+falls back to its serif face.
 
 ## 1.1.0 — 2026-08-26
 
-### Fixed — über ein Angebot verkauft hieß: keine Rechnung
+### Fixed — sold through an offer meant: no invoice
 
-`product()` las `config('statamic-payments.products')` direkt und fragte nie den `Catalogue` — also
-genau die Naht, über die `statamic-offers` seine Angebote unter dem Präfix `offer:` einhängt. Für
-jede Zahlung, die über ein Angebot lief, warf `isDigital()` `ProductIncomplete`, und es entstand
-**gar kein Dokument**. `statamic-funnels` benutzt für jeden Bezahlschritt ein Angebot, die
-beworbene Kette riss also am letzten Glied.
+`product()` read `config('statamic-payments.products')` directly and never asked the `Catalogue` —
+that is, exactly the seam through which `statamic-offers` hangs its offers under the `offer:`
+prefix. For every payment that went through an offer, `isDigital()` threw `ProductIncomplete`, and
+**no document at all** came into being. `statamic-funnels` uses an offer for every paid step, so
+the advertised chain broke at its last link.
 
-Dazu zwei Nachbarfehler, die derselbe Test aufgedeckt hat:
+On top of that, two neighbouring defects the same test uncovered:
 
-- **Die Steuerklasse wird je Produkt-Handle konfiguriert**, und ein Angebot hat einen eigenen. Ohne
-  den neuen `taxHandle()` wäre ein Angebot für ein ermäßigtes Produkt still auf die Standardklasse
-  gefallen — falscher Satz, richtiges Aussehen, unveränderliches Dokument.
-- **Der Positionsname war der rohe Handle.** Eine Zahlung ohne Positionen druckte `kurs` statt
-  „Chorleitungskurs" und `offer:fruehling-upsell` statt dem Namen, den der Käufer gelesen hatte.
-  Vorbestehend; erst sichtbar, als ein Angebot den Handle hässlich genug machte.
+- **The tax class is configured per product handle**, and an offer has one of its own. Without the
+  new `taxHandle()`, an offer for a reduced-rate product would have fallen silently to the default
+  class — wrong rate, right appearance, unchangeable document.
+- **The line item's name was the raw handle.** A payment without line items printed `kurs` instead
+  of "Chorleitungskurs" and `offer:fruehling-upsell` instead of the name the buyer had read.
+  Pre-existing; only visible once an offer made the handle ugly enough.
 
-### Changed — `prices_include_tax` hat keine Voreinstellung mehr
+### Changed — `prices_include_tax` no longer has a default
 
-Ab Werk stand es auf `false`, hinterlegte Preise galten also als netto. Für ein Addon, dessen
-Zielgruppe in Deutschland an Verbraucher verkauft, ist das die falsche Vermutung: der angezeigte
-Preis ist nach Preisangabenverordnung der Endpreis inklusive Umsatzsteuer. Wer 19 € einträgt, meint
-19 € brutto — die Rechnung wies 22,61 € aus, für eine Zahlung über 19 €.
+Out of the box it was `false`, so stored prices counted as net. For an addon whose target group in
+Germany sells to consumers, that is the wrong assumption: under the Preisangabenverordnung (the
+German price indication regulation) the displayed price is the final price including VAT. Whoever
+enters €19 means €19 gross — the invoice stated €22.61 for a payment of €19.
 
-Es gibt jetzt keine Vermutung. Die erste Rechnung verweigert sich mit `PriceBasisUndecided`, bis
-jemand einmal je Installation geantwortet hat. Bei Geld ist eine Verweigerung mit Begründung besser
-als eine plausible falsche Zahl.
+There is no assumption now. The first invoice refuses with `PriceBasisUndecided` until somebody
+has answered once per installation. Where money is concerned, a refusal with a reason is better
+than a plausible wrong figure.
 
-Die Frage wird nur gestellt, wo sie etwas entscheidet: unter § 19, bei einer Befreiung und bei einem
-Satz von 0 sind netto und brutto dasselbe, und dort schweigt sie.
+The question is only asked where the answer decides something: under § 19, under an exemption and
+at a rate of 0, net and gross are the same, and there it stays silent.
 
-### Added — die Rechnung muss zum Geld passen
+### Added — the invoice has to match the money
 
-`DoesNotMatchThePayment`: die Summe eines Dokuments muss der Betrag sein, der tatsächlich eingezogen
-wurde. Das ist die einzige Prüfung von außen, die eine Rechnung überhaupt hat — alles andere an ihr
-ist konstruktionsbedingt stimmig, weil derselbe Code die Zeilen addiert, der sie schreibt. Ein
-falscher Satz ergibt eine falsche Rechnung, die genau wie eine richtige aussieht; der Kontoauszug ist
-der einzige Zeuge, den bisher niemand gefragt hat.
+`DoesNotMatchThePayment`: a document's total has to be the amount that was actually collected.
+That is the only external check an invoice has at all — everything else about it is consistent by
+construction, because the same code that adds up the lines is the code that writes them. A wrong
+rate produces a wrong invoice that looks exactly like a correct one; the bank statement is the only
+witness, and so far nobody has asked it.
 
-Sie fängt die ganze Familie auf einmal: eine falsch herum stehende Preisbasis, einen Satz, wo keiner
-hingehört, einen Nachlass, der beim Aufteilen einen Cent verliert, Positionen, die nicht zur Zahlung
-summieren.
+It catches the whole family at once: a price basis standing the wrong way round, a rate where none
+belongs, a discount that loses a cent while being split, line items that do not sum to the payment.
 
-**Was sie nebenbei gezeigt hat:** `prices_include_tax => false` kann für eine aus einer Zahlung
-abgeleitete Rechnung heute gar nicht richtig sein, weil in dieser Familie niemand an der Kasse
-Steuer aufschlägt. Die Option bleibt — ein Wirt kann das eines Tages tun — aber eine falsch
-konfigurierte Installation erfährt es jetzt bei der ersten Rechnung statt beim nächsten Prüfungstermin.
+**What it showed in passing:** `prices_include_tax => false` cannot be correct today for an invoice
+derived from a payment, because nobody in this family adds tax at the checkout. The option stays —
+a host may do that one day — but a misconfigured installation now finds out at the first invoice
+instead of at the next audit.
 
 ## 1.0.0 — 2026-08-25
 
