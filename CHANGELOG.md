@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.2 — 2026-09-09
+
+**A number that was already issued rolled back a fulfilment.** The counter runs per brand and
+per period, the number is unique across the whole table, and both of those are wanted. Change a
+prefix after invoices exist — something an operator is allowed to do — and the fresh counter
+hands out `NL2026-09-001` while that number is already on a document. The database refused, and
+the refusal arrived as a `UniqueConstraintViolationException`.
+
+That is not an `InvoiceNotWritten`, and `WriteInvoiceOnPayment` catches only those. So the
+exception escaped the listener, rolled back a fulfilment the buyer had already been given, and
+had the provider deliver the webhook again — for a problem no retry solves. It is now
+`NumberAlreadyTaken`, an `InvoiceNotWritten` like every other reason a person has to decide: the
+payment stays fulfilled, the reason lands in the log and in `invoices:pending`, and the document
+waits for whoever changed the prefix. The same catch guards the credit note, where the identical
+collision was reachable through a refund.
+
+**And one bad row no longer takes the batch with it.** `invoices:pending --write` caught
+`InvoiceNotWritten` per row but nothing else, so the collision ended the run at the first hit and
+the payments after it were never even tried. Each row now runs inside its own error boundary,
+whatever it throws, and the run ends with a non-zero exit code when anything stayed unwritten —
+a daily run that leaves invoices missing and exits 0 is the silent kind of failure this command
+exists to prevent.
+
+Found on a Stripe test purchase in the playground on 09.09.2026, after a brand's prefix was
+changed.
+
 ## 2.1.1 — 2026-09-08
 
 **The logo was never in the PDF.** The template put it into the document as inline `<svg>`

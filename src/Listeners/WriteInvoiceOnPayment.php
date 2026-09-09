@@ -27,7 +27,12 @@ class WriteInvoiceOnPayment
             // niemand raten darf. Eine Ausnahme bis nach oben wuerde die
             // Erfuellung zurueckrollen und den Anbieter alles noch einmal
             // schicken lassen — fuer ein Problem, das kein Wiederholen loest.
+            // Die Ausnahme selbst gehoert dazu, nicht nur ihr Satz. Bei einer
+            // Nummernkollision haengt die urspruengliche Datenbankmeldung als
+            // `previous` daran, und die nennt den verletzten Index — der
+            // einzige Beleg dafuer, dass die Diagnose in der Meldung stimmt.
             Log::warning($e->getMessage(), [
+                'exception' => $e,
                 'payment_id' => $event->payment->getKey(),
                 'lines' => $e instanceof RateUndetermined ? $e->lines : null,
             ]);

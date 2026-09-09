@@ -172,9 +172,13 @@ class DeliveredToTheBuyerTest extends TestCase
         // Lauf mit einem Stacktrace abzubrechen.
         $this->zahlung(['amount_cent' => 30000]);
 
+        // Exit 1, nicht 0: der Lauf hat gearbeitet und trotzdem eine Rechnung
+        // nicht geschrieben. Ein taeglicher Aufruf, der mit 0 endet, waehrend
+        // Belege fehlen, meldet nichts — der Grund steht in der Ausgabe, und
+        // die liest bei einem gruenen Exit niemand.
         $this->artisan('invoices:pending --write')
             ->expectsOutputToContain('recipient has no address')
-            ->assertExitCode(0);
+            ->assertExitCode(1);
 
         $this->assertSame(0, Invoice::count());
         $this->assertSame([], $this->postausgang());

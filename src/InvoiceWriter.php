@@ -6,6 +6,7 @@ use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
 use Goldnead\Invoices\Exceptions\DetailsMissing;
 use Goldnead\Invoices\Exceptions\DoesNotMatchThePayment;
+use Goldnead\Invoices\Exceptions\NumberAlreadyTaken;
 use Goldnead\Invoices\Exceptions\ProductIncomplete;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\Models\Invoice;
@@ -18,6 +19,7 @@ use Goldnead\Invoices\Support\VatIdCheck;
 use Goldnead\Invoices\Support\VatIdStatus;
 use Goldnead\StatamicPayments\Models\Payment;
 use Goldnead\StatamicPayments\Support\Catalogue;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -102,9 +104,9 @@ class InvoiceWriter
         // eine gesperrte Zeile ist auf MySQL ein Deadlock und auf SQLite ein
         // "database is locked" — beides ist ein Grund, es gleich noch einmal zu
         // versuchen, und keiner, eine bezahlte Bestellung ohne Beleg zu lassen.
-        $invoice = DB::transaction(function () use ($payment, $zeilen, $brandId, $hinweise): Invoice {
-            $issuedAt = $payment->paid_at ?? Carbon::now();
+        $issuedAt = $payment->paid_at ?? Carbon::now();
 
+        $schreiben = function () use ($payment, $zeilen, $brandId, $hinweise, $issuedAt): Invoice {
             $invoice = Invoice::create([
                 'brand_id' => $brandId,
                 // Genommen, waehrend die Zeile geschrieben wird. Frueher hiesse:
@@ -155,7 +157,23 @@ class InvoiceWriter
             });
 
             return $invoice;
-        }, 3);
+        };
+
+        try {
+            $invoice = DB::transaction($schreiben, 3);
+        } catch (UniqueConstraintViolationException $e) {
+            // Zwei Indizes koennen hier zuschlagen, und die Antworten darauf
+            // sind entgegengesetzt. (payment_id, kind): eine zweite Zustellung
+            // war schneller, ihre Rechnung ist die Antwort. Die Nummer: die
+            // Reihe kann nicht weiterzaehlen, und das muss ein Mensch
+            // entscheiden — als InvoiceNotWritten, damit es der Zuhoerer auf
+            // PaymentPaid faengt, statt die Erfuellung zurueckzurollen.
+            if ($vorhanden = $this->existing($payment, Invoice::KIND_INVOICE)) {
+                return $vorhanden;
+            }
+
+            throw new NumberAlreadyTaken($brandId, $this->numbers->series($brandId, $issuedAt), $e);
+        }
 
         InvoiceIssued::dispatch($invoice->fresh(['items']) ?? $invoice);
 
@@ -239,9 +257,9 @@ class InvoiceWriter
             return null;
         }
 
-        $storno = DB::transaction(function () use ($original): Invoice {
-            $issuedAt = Carbon::now();
+        $issuedAt = Carbon::now();
 
+        $schreiben = function () use ($original, $issuedAt): Invoice {
             $storno = Invoice::create([
                 'brand_id' => $original->brand_id,
                 'number' => $this->numbers->take($original->brand_id, $issuedAt),
@@ -288,7 +306,25 @@ class InvoiceWriter
             });
 
             return $storno;
-        }, 3);
+        };
+
+        try {
+            $storno = DB::transaction($schreiben, 3);
+        } catch (UniqueConstraintViolationException $e) {
+            // Dieselbe Gabelung wie beim Ausstellen: war eine zweite Zustellung
+            // schneller, steht das Storno schon da und dieser Weg ist fertig.
+            // Der Blick oben zaehlt hier nicht, er liegt vor der Transaktion —
+            // genau das Fenster, das der Index zumacht.
+            if ($this->existing($payment, Invoice::KIND_CREDIT_NOTE)) {
+                return null;
+            }
+
+            throw new NumberAlreadyTaken(
+                (int) $original->brand_id,
+                $this->numbers->series((int) $original->brand_id, $issuedAt),
+                $e,
+            );
+        }
 
         CreditNoteIssued::dispatch($storno->fresh(['items']) ?? $storno, $original);
 
@@ -489,6 +525,12 @@ class InvoiceWriter
      * courtesy that saves a lock, the one inside is what actually holds. Two
      * webhook deliveries arriving together both read nothing here, and only the
      * unique index stops them both writing.
+     *
+     * Und genau deshalb `@phpstan-impure`: zwei Aufrufe duerfen nicht dasselbe
+     * antworten. Ohne die Angabe merkt sich die Analyse die erste Antwort und
+     * haelt die zweite Frage — die nach dem Fehlschlag am Index — fuer sinnlos.
+     *
+     * @phpstan-impure
      */
     protected function existing(Payment $payment, string $kind): ?Invoice
     {
