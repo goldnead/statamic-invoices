@@ -1,9 +1,21 @@
 # Changelog
 
-## Unreleased
+## 2.2.0 — 2026-09-23
 
-**Upgrade: run `php artisan migrate` before the next sale.** The writer now fills two new columns on
-`invoice_items`; an invoice written before the migration has run fails on the missing column.
+### Upgrading
+
+- **Run `php artisan migrate` before the next sale.** The writer now fills two new columns on
+  `invoice_items` (migration `2026_09_23_120000`); an invoice written before the migration has run
+  fails on the missing column.
+- **Set the queue connection's `retry_after` above 1800 seconds.** The PDF archive of a period is
+  built by a queued job that may run that long; a shorter `retry_after` starts it a second time.
+- New config keys, all with defaults: `export.disk`, `export.directory`, `tax.oss.shipped_rates`
+  (off), `tax.oss.shipped_rates_class`. A published config file does not have them until you add
+  them; the defaults apply meanwhile.
+- If the site caches routes (`php artisan optimize`), rebuild the cache so the new export utility
+  is reachable.
+
+### Added
 
 **Exports for tax and bookkeeping.** A new Control Panel utility, "Invoice export", and a command,
 `invoices:export`, hand a period to whoever does the books: a CSV with one row per document and
@@ -23,6 +35,8 @@ Installations that do not switch it on behave exactly as before.
 `place_of_supply` on `invoice_items` (migration `2026_09_23_120000`), written by the writer and
 copied onto credit notes. Lines from before carry neither; the export derives both and counts them.
 
+### Details of the export
+
 The CSV runs in the order of the invoice date, then the number, and the brand column carries the
 brand's name. Every text column a buyer could have typed into (name, e-mail, VAT ID, reference,
 booking text) is written with a leading apostrophe when it starts with `=`, `+`, `-`, `@`, a tab or
@@ -30,10 +44,7 @@ a carriage return, so a spreadsheet does not run it as a formula; amounts stay n
 spells characters outside the code page in Latin ("Łukasz" becomes "Lukasz"), independent of the
 process locale. Archives and CSV file names carry the brand, and the screen lists and hands out only
 the current brand's archives. A job the queue gives up on, or one older than its timeout, shows as
-failed instead of "being built". Set the queue connection's `retry_after` above 1800 seconds.
-
-New config: `export.disk`, `export.directory`, `tax.oss.shipped_rates`,
-`tax.oss.shipped_rates_class`.
+failed instead of "being built".
 
 ## 2.1.2 — 2026-09-09
 
