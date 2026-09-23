@@ -50,6 +50,9 @@
         </ui-card>
     @else
         <ui-card>
+            {{-- Sieben Spalten Beträge passen auf ein Telefon nicht. Die Tabelle
+                 scrollt dann für sich, statt die Summen abzuschneiden. --}}
+            <div class="overflow-x-auto">
             <ui-table>
                 <ui-table-columns>
                     <ui-table-column>{{ __('invoices::exports.report_treatment') }}</ui-table-column>
@@ -65,24 +68,25 @@
                         <ui-table-row>
                             <ui-table-cell>{{ __('invoices::exports.mechanism.'.$row['mechanism']) }}</ui-table-cell>
                             <ui-table-cell>{{ $row['country'] ?? '' }}</ui-table-cell>
-                            <ui-table-cell class="text-right tabular-nums">{{ $percent($row['rate_bp']) }}</ui-table-cell>
-                            <ui-table-cell class="text-right tabular-nums">{{ $row['documents'] }}</ui-table-cell>
-                            <ui-table-cell class="text-right tabular-nums">{{ $euro($row['net']) }}</ui-table-cell>
-                            <ui-table-cell class="text-right tabular-nums">{{ $euro($row['tax']) }}</ui-table-cell>
-                            <ui-table-cell class="text-right tabular-nums">{{ $euro($row['gross']) }}</ui-table-cell>
+                            <ui-table-cell class="text-right tabular-nums whitespace-nowrap">{{ $percent($row['rate_bp']) }}</ui-table-cell>
+                            <ui-table-cell class="text-right tabular-nums whitespace-nowrap">{{ $row['documents'] }}</ui-table-cell>
+                            <ui-table-cell class="text-right tabular-nums whitespace-nowrap">{{ $euro($row['net']) }}</ui-table-cell>
+                            <ui-table-cell class="text-right tabular-nums whitespace-nowrap">{{ $euro($row['tax']) }}</ui-table-cell>
+                            <ui-table-cell class="text-right tabular-nums whitespace-nowrap">{{ $euro($row['gross']) }}</ui-table-cell>
                         </ui-table-row>
                     @endforeach
                     <ui-table-row>
                         <ui-table-cell><ui-text variant="strong" text="{{ __('invoices::exports.report_total') }}" /></ui-table-cell>
                         <ui-table-cell></ui-table-cell>
                         <ui-table-cell></ui-table-cell>
-                        <ui-table-cell class="text-right tabular-nums"><ui-text variant="strong" text="{{ $report->documents }}" /></ui-table-cell>
-                        <ui-table-cell class="text-right tabular-nums"><ui-text variant="strong" text="{{ $euro($report->totals['net']) }}" /></ui-table-cell>
-                        <ui-table-cell class="text-right tabular-nums"><ui-text variant="strong" text="{{ $euro($report->totals['tax']) }}" /></ui-table-cell>
-                        <ui-table-cell class="text-right tabular-nums"><ui-text variant="strong" text="{{ $euro($report->totals['gross']) }}" /></ui-table-cell>
+                        <ui-table-cell class="text-right tabular-nums whitespace-nowrap"><ui-text variant="strong" text="{{ $report->documents }}" /></ui-table-cell>
+                        <ui-table-cell class="text-right tabular-nums whitespace-nowrap"><ui-text variant="strong" text="{{ $euro($report->totals['net']) }}" /></ui-table-cell>
+                        <ui-table-cell class="text-right tabular-nums whitespace-nowrap"><ui-text variant="strong" text="{{ $euro($report->totals['tax']) }}" /></ui-table-cell>
+                        <ui-table-cell class="text-right tabular-nums whitespace-nowrap"><ui-text variant="strong" text="{{ $euro($report->totals['gross']) }}" /></ui-table-cell>
                     </ui-table-row>
                 </ui-table-rows>
             </ui-table>
+            </div>
 
             @if($report->ossRows() !== [])
                 <ui-description class="mt-4" text="{{ __('invoices::exports.report_oss', ['amount' => $euro($report->ossTax())]) }}" />
