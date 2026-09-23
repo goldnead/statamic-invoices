@@ -157,11 +157,11 @@ return [
         ],
         'tax_oss_destination_taxation' => [
             'label' => 'Destination taxation, OSS',
-            'description' => 'On once you are registered for OSS: B2C sales into the EU then carry the recipient country\'s rate. That needs the zones for those countries filled in in config/invoices.php or the shipped EU standard rates (the switch below) on, or those lines come back undetermined.',
+            'description' => 'Switch this on once you are registered for OSS. Sales to consumers in other EU countries then carry the recipient country\'s rate. That rate comes either from a zone of your own in config/invoices.php or from the switch below with the shipped EU standard rates (as of 02.02.2026). Without either, the line stays undetermined and no invoice is written.',
         ],
         'tax_oss_shipped_rates' => [
             'label' => 'Shipped EU standard rates',
-            'description' => 'Lets the table that ships with this addon supply the standard rate of every member state that has no zone of its own in config/invoices.php. Only takes effect with destination taxation on. Standard rates only, as of the date in Support\EuStandardRates; check the countries you sell into. A zone you write always wins.',
+            'description' => 'The addon ships the standard rates of all 27 EU countries, as of 02.02.2026. Switched on, this table supplies the rate for every country that has no zone of its own in config/invoices.php. It only takes effect together with destination taxation. It holds no reduced rates. Check the rates of the countries you sell into; a zone you write always wins.',
         ],
 
         'tax_texts_small_business' => [

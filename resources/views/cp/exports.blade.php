@@ -165,7 +165,7 @@
                         <ui-table-row>
                             <ui-table-cell>{{ $archive['name'] }}</ui-table-cell>
                             <ui-table-cell class="tabular-nums">{{ $size($archive['size']) }}</ui-table-cell>
-                            <ui-table-cell class="tabular-nums">{{ \Illuminate\Support\Carbon::createFromTimestamp($archive['modified'], config('app.timezone'))->format('d.m.Y H:i') }}</ui-table-cell>
+                            <ui-table-cell class="tabular-nums">{{ $archivedAt($archive['modified']) }}</ui-table-cell>
                             <ui-table-cell class="text-right">
                                 <ui-button as="a" size="sm" href="{{ $downloadUrl($archive['name']) }}" download icon="download" text="{{ __('invoices::exports.archive_download') }}" />
                             </ui-table-cell>

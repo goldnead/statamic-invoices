@@ -69,7 +69,13 @@ final class Exports
             ),
             'reportCsvUrl' => cp_route('utilities.invoice-exports.report', $query),
             'archiveUrl' => cp_route('utilities.invoice-exports.archive'),
-            'archives' => ArchiveStore::make()->listing(),
+            'archives' => ArchiveStore::make()->listing($brandId),
+            // The time a person reads, in the zone the Control Panel shows
+            // every other date in, not the server's.
+            'archivedAt' => fn (int $timestamp) => CarbonImmutable::createFromTimestamp(
+                $timestamp,
+                (string) (config('statamic.system.display_timezone') ?: config('app.timezone', 'UTC')),
+            )->format('d.m.Y H:i'),
             'downloadUrl' => fn (string $name) => cp_route('utilities.invoice-exports.download', ['file' => $name]),
             'euro' => fn (int $cent) => Money::format($cent, (string) (array_key_first($report->currencies) ?? 'EUR')),
             'percent' => fn (int $bp) => rtrim(rtrim(number_format($bp / 100, 2, ',', ''), '0'), ',').' %',

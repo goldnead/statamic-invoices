@@ -156,6 +156,18 @@ it('refuses a misspelt switch rather than leaving the table off in silence', fun
     new TaxRules(ossConfig(['oss' => ['shiped_rates' => true]]));
 })->throws(InvalidArgumentException::class, 'shiped_rates');
 
+it('names the date of the table on the settings screen, in both languages', function () {
+    $stand = DateTime::createFromFormat('!Y-m-d', EuStandardRates::AS_OF)->format('d.m.Y');
+
+    foreach (['de', 'en'] as $sprache) {
+        $felder = (require __DIR__."/../../resources/lang/{$sprache}/settings.php")['fields'];
+
+        expect($felder['tax_oss_destination_taxation']['description'])->toContain($stand)
+            ->and($felder['tax_oss_shipped_rates']['description'])->toContain($stand)
+            ->and($felder['tax_oss_shipped_rates']['description'])->not->toContain('Support\\');
+    }
+});
+
 it('ships switched off', function () {
     $config = require __DIR__.'/../../config/invoices.php';
 

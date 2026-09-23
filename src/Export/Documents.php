@@ -18,10 +18,12 @@ use Illuminate\Support\LazyCollection;
  * One reading for all three exports, so the CSV, the ZIP and the report can
  * never disagree about which documents belong to August.
  *
- * **Lazily, two hundred at a time.** A year of a busy shop is tens of
- * thousands of rows, and a `get()` would hold every one of them and their
- * lines in memory at once. By id, not by offset: the table only ever grows,
- * and an offset walk over a table that grows while it is walked skips rows.
+ * **Lazily, two hundred at a time, in the order of the invoice date** (then
+ * the number), which is the order a bookkeeper reads a journal in. A year of a
+ * busy shop is tens of thousands of rows, and a `get()` would hold every one of
+ * them and their lines in memory at once. The walk is by offset; a document
+ * written while it runs lands at the end of the period (it is dated now), so
+ * an export of a closed period cannot skip one.
  *
  * **Nothing is recomputed.** The rate, the amounts, the mechanism and the
  * place of supply are what the line says. The one exception is a line written
@@ -45,7 +47,12 @@ final class Documents
      */
     public static function lazy(Period $period, ?int $brandId = null): LazyCollection
     {
-        return self::query($period, $brandId)->with('items')->lazyById(200);
+        return self::query($period, $brandId)
+            ->with('items')
+            ->orderBy('issued_at')
+            ->orderBy('number')
+            ->orderBy('id')
+            ->lazy(200);
     }
 
     /** Credit notes count against the period, with a minus. */

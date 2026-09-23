@@ -78,6 +78,7 @@ return [
     'archive_none' => 'No archive built yet.',
     'archive_pending' => 'being built',
     'archive_failed' => 'failed',
+    'archive_stale' => 'Not finished after more than :minutes minutes. The job was probably stopped; please build it again.',
     'archive_download' => 'Download',
     'archive_empty_file' => 'No document was issued in the period :period.',
 

@@ -270,8 +270,16 @@ the brand you are looking at:
   semicolon with UTF-8 (Excel, DATEV, Lexware Office), semicolon with Windows-1252, comma with a
   decimal point. The column names are fixed German headers, so a saved import mapping keeps working.
 - **PDF archive**: every document of the period in one ZIP, built by a queued job
-  (`BuildPdfArchive`) and stored on `invoices.export.disk` (private, `local` by default) until it is
-  downloaded.
+  (`BuildPdfArchive`, timeout 1800 seconds) and stored on `invoices.export.disk` (private, `local`
+  by default) until it is downloaded. Set `retry_after` of your queue connection above 1800,
+  otherwise a second worker starts the same archive while the first is still rendering. A job the
+  queue gives up on shows as failed on the screen.
+
+Text columns that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading apostrophe,
+so a spreadsheet opens them as text rather than running them as a formula.
+
+**Upgrading to 2.2:** run `php artisan migrate` before the next sale. The writer fills two new
+columns on `invoice_items`, and an invoice written before the migration has run fails.
 
 The same from the command line, with any combination of delimiter, encoding and decimal mark:
 

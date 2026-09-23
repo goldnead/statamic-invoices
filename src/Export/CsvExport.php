@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Goldnead\Invoices\Export;
 
+use Goldnead\BrandContext\Models\Brand;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Support\TaxResult;
 
@@ -115,15 +116,20 @@ final class CsvExport
 
         $reference = $sign < 0 ? ($invoice->meta['reverses_number'] ?? $invoice->reverses?->number) : null;
 
+        // Every column a buyer could have typed into goes through text(), which
+        // keeps a spreadsheet from running it. Amounts, rates and dates are
+        // ours and stay as they are, minus sign included.
+        $text = fn (?string $value) => $this->format->text($value);
+
         return array_values(array_map(fn (array $group) => [
             $sign < 0 ? 'Storno' : 'Rechnung',
-            $invoice->number,
+            $text($invoice->number),
             $invoice->issued_at->format('d.m.Y'),
-            $reference,
-            $invoice->buyer_name,
-            $invoice->buyer_email,
-            $invoice->buyer_country,
-            $invoice->buyer_vat_id,
+            $text($reference),
+            $text($invoice->buyer_name),
+            $text($invoice->buyer_email),
+            $text($invoice->buyer_country),
+            $text($invoice->buyer_vat_id),
             $group['treatment']['country'],
             self::TREATMENTS[$group['treatment']['mechanism']] ?? $group['treatment']['mechanism'],
             $this->format->rate($group['rate']),
@@ -133,8 +139,38 @@ final class CsvExport
             $invoice->currency,
             // DATEV cuts the booking text at 60 characters. Cut here, with a
             // mark that says so, rather than there, silently.
-            mb_strimwidth(($sign < 0 ? 'Storno ' : '').implode(', ', array_unique($group['names'])), 0, 60, '…'),
-            $invoice->brand_id ?: null,
+            $text(mb_strimwidth(($sign < 0 ? 'Storno ' : '').implode(', ', array_unique($group['names'])), 0, 60, '…')),
+            $text($this->brandName((int) $invoice->brand_id)),
         ], $groups));
+    }
+
+    /** @var array<int, string|null> */
+    private array $brandNames = [];
+
+    /**
+     * The brand's name, as the bookkeeper knows it, or its id when brand-context
+     * is not there to ask. Empty for an installation without brands.
+     */
+    private function brandName(int $brandId): ?string
+    {
+        if ($brandId === 0) {
+            return null;
+        }
+
+        if (! array_key_exists($brandId, $this->brandNames)) {
+            $name = null;
+
+            if (class_exists('\Goldnead\BrandContext\Models\Brand')) {
+                try {
+                    $name = Brand::query()->whereKey($brandId)->value('name');
+                } catch (\Throwable) {
+                    $name = null;
+                }
+            }
+
+            $this->brandNames[$brandId] = is_string($name) && $name !== '' ? $name : (string) $brandId;
+        }
+
+        return $this->brandNames[$brandId];
     }
 }

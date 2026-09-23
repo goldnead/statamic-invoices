@@ -45,7 +45,7 @@ class ExportController extends Controller
 
         return $this->stream(
             fn ($out) => (new CsvExport($format))->write($out, $period, $brandId),
-            'Belege_'.$period->slug().'.csv',
+            'Belege_'.$period->slug().ArchiveStore::brandSuffix($brandId).'.csv',
             $format,
         );
     }
@@ -62,7 +62,7 @@ class ExportController extends Controller
 
         return $this->stream(
             fn ($out) => TaxReport::for($period, $brandId)->writeCsv($out, $format),
-            'Steuerbericht_'.$period->slug().'.csv',
+            'Steuerbericht_'.$period->slug().ArchiveStore::brandSuffix($brandId).'.csv',
             $format,
         );
     }
@@ -93,7 +93,9 @@ class ExportController extends Controller
     {
         $store = ArchiveStore::make();
 
-        abort_unless($store->exists($file), 404);
+        // Another brand's archive answers exactly like a missing one. A 403
+        // would confirm that a file of that name exists.
+        abort_unless($store->exists($file) && $store->belongsTo($file, Exports::currentBrandId()), 404);
 
         return $store->download($file);
     }

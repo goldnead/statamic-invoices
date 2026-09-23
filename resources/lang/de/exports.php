@@ -78,6 +78,7 @@ return [
     'archive_none' => 'Noch kein Archiv erstellt.',
     'archive_pending' => 'wird erstellt',
     'archive_failed' => 'fehlgeschlagen',
+    'archive_stale' => 'Seit mehr als :minutes Minuten nicht fertig geworden. Der Job wurde vermutlich abgebrochen; bitte neu erstellen.',
     'archive_download' => 'Herunterladen',
     'archive_empty_file' => 'Im Zeitraum :period wurde kein Beleg ausgestellt.',
 

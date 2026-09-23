@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+**Upgrade: run `php artisan migrate` before the next sale.** The writer now fills two new columns on
+`invoice_items`; an invoice written before the migration has run fails on the missing column.
+
 **Exports for tax and bookkeeping.** A new Control Panel utility, "Invoice export", and a command,
 `invoices:export`, hand a period to whoever does the books: a CSV with one row per document and
 rate (credit notes with a minus; semicolon or comma, UTF-8 with or without BOM, or Windows-1252),
@@ -19,6 +22,15 @@ Installations that do not switch it on behave exactly as before.
 **Each invoice line keeps where its tax is owed.** New nullable columns `tax_mechanism` and
 `place_of_supply` on `invoice_items` (migration `2026_09_23_120000`), written by the writer and
 copied onto credit notes. Lines from before carry neither; the export derives both and counts them.
+
+The CSV runs in the order of the invoice date, then the number, and the brand column carries the
+brand's name. Every text column a buyer could have typed into (name, e-mail, VAT ID, reference,
+booking text) is written with a leading apostrophe when it starts with `=`, `+`, `-`, `@`, a tab or
+a carriage return, so a spreadsheet does not run it as a formula; amounts stay numbers. Windows-1252
+spells characters outside the code page in Latin ("Łukasz" becomes "Lukasz"), independent of the
+process locale. Archives and CSV file names carry the brand, and the screen lists and hands out only
+the current brand's archives. A job the queue gives up on, or one older than its timeout, shows as
+failed instead of "being built". Set the queue connection's `retry_after` above 1800 seconds.
 
 New config: `export.disk`, `export.directory`, `tax.oss.shipped_rates`,
 `tax.oss.shipped_rates_class`.

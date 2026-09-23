@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Goldnead\Invoices\Export;
 
+use Goldnead\Invoices\Jobs\BuildPdfArchive;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -45,7 +46,27 @@ final class ArchiveStore
 
     public function nameFor(Period $period, ?int $brandId): string
     {
-        return 'Belege_'.$period->slug().($brandId !== null ? '_marke-'.$brandId : '').'.zip';
+        return 'Belege_'.$period->slug().self::brandSuffix($brandId).'.zip';
+    }
+
+    /** `_marke-2` for a brand, nothing for an installation without brands. Also used for the CSV names. */
+    public static function brandSuffix(?int $brandId): string
+    {
+        return $brandId !== null ? '_marke-'.$brandId : '';
+    }
+
+    /**
+     * Does this archive belong to the brand the Control Panel is looking at?
+     *
+     * Read off the name, which the job wrote from the same brand id. A user
+     * switched to one brand must not list, let alone download, the invoices of
+     * another, even when both brands share one disk.
+     */
+    public function belongsTo(string $name, ?int $brandId): bool
+    {
+        $owner = preg_match('/_marke-(\d+)\.zip$/', $name, $m) === 1 ? (int) $m[1] : null;
+
+        return $owner === $brandId;
     }
 
     public function isValidName(string $name): bool
@@ -100,24 +121,40 @@ final class ArchiveStore
     }
 
     /**
-     * Newest first.
+     * The archives of one brand, newest first.
+     *
+     * A `.pending` marker older than the job may run ({@see BuildPdfArchive::$timeout})
+     * is listed as failed. A worker killed at its timeout never reaches the job's
+     * own error handling, and "being built" would otherwise stand there forever.
      *
      * @return array{ready: list<array{name: string, size: int, modified: int}>, pending: list<string>, failed: list<array{name: string, reason: string}>}
      */
-    public function listing(): array
+    public function listing(?int $brandId): array
     {
         $ready = [];
         $pending = [];
         $failed = [];
+        $limit = BuildPdfArchive::TIMEOUT;
 
         foreach ($this->disk->files($this->directory) as $file) {
             $base = basename($file);
+            $archive = (string) preg_replace('/\.(pending|failed)$/', '', $base);
+
+            if (! $this->isValidName($archive) || ! $this->belongsTo($archive, $brandId)) {
+                continue;
+            }
 
             if (str_ends_with($base, '.zip.pending')) {
-                $pending[] = substr($base, 0, -strlen('.pending'));
+                $since = strtotime(trim((string) $this->disk->get($file))) ?: (int) $this->disk->lastModified($file);
+
+                if (time() - $since > $limit) {
+                    $failed[] = ['name' => $archive, 'reason' => __('invoices::exports.archive_stale', ['minutes' => intdiv($limit, 60)])];
+                } else {
+                    $pending[] = $archive;
+                }
             } elseif (str_ends_with($base, '.zip.failed')) {
-                $failed[] = ['name' => substr($base, 0, -strlen('.failed')), 'reason' => (string) $this->disk->get($file)];
-            } elseif ($this->isValidName($base)) {
+                $failed[] = ['name' => $archive, 'reason' => (string) $this->disk->get($file)];
+            } else {
                 $ready[] = ['name' => $base, 'size' => (int) $this->disk->size($file), 'modified' => (int) $this->disk->lastModified($file)];
             }
         }

@@ -35,7 +35,13 @@ class BuildPdfArchive implements ShouldQueue
     /** One try: a render that failed once fails the same way again, and the marker says why. */
     public int $tries = 1;
 
-    public int $timeout = 1800;
+    /**
+     * Seconds. The queue connection's `retry_after` has to be longer than this,
+     * or a second worker picks the job up while the first is still rendering.
+     */
+    public const TIMEOUT = 1800;
+
+    public int $timeout = self::TIMEOUT;
 
     public function __construct(
         public readonly string $from,
@@ -71,5 +77,20 @@ class BuildPdfArchive implements ShouldQueue
             @unlink($temp);
             @unlink($reserved);
         }
+    }
+
+    /**
+     * Called by the queue when the job is given up on, including when the
+     * worker killed it at `$timeout` and handle() never reached its catch.
+     * Without it the screen would say "being built" until someone deleted a file.
+     */
+    public function failed(?Throwable $e = null): void
+    {
+        $store = ArchiveStore::make();
+
+        $store->markFailed(
+            $store->nameFor(Period::between($this->from, $this->to), $this->brandId),
+            $e?->getMessage() ?: __('invoices::exports.archive_failed'),
+        );
     }
 }
