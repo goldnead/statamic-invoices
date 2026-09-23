@@ -232,9 +232,63 @@ pending. Collapsing the two would tell a business with a correct number that it 
 Bind `Contracts\VatIdVerifier` to your own implementation to use the German BZSt enquiry
 (§ 18e UStG) instead of VIES.
 
+## Selling to consumers in other EU countries (OSS)
+
+Once your B2C turnover into other member states passes €10,000 a year, a consumer in Austria pays
+Austrian VAT. Switch `tax.oss.destination_taxation` on for that, and either write a zone for every
+country you sell into, or let the addon supply the standard rates:
+
+```php
+'oss' => [
+    'destination_taxation' => true,
+    'shipped_rates' => true,          // off by default: nothing changes until you ask
+    'shipped_rates_class' => 'standard',
+],
+```
+
+`Support\EuStandardRates` holds the standard rate of all 27 member states with the date they were
+read (`AS_OF`) and their sources. Every line taxed from that table says so in its notes. A zone you
+write for a country always beats the table, which is how you correct a rate before the addon
+catches up. Standard rates only: a product in a reduced class still needs a zone of its own,
+because reduced rates differ by country and by kind of supply. A business with a confirmed VAT ID
+still gets reverse charge, and `tax.small_business` still switches everything off. Check the rates
+of the countries you actually sell into; this is the addon's reading of published tables, not tax
+advice.
+
+Every invoice line keeps the mechanism and the place of supply the rules decided (`tax_mechanism`,
+`place_of_supply`), so the tax report can say where the tax is owed a year later.
+
+## Exports for tax and bookkeeping
+
+**Control Panel → Utilities → Invoice export** (permission `access invoice-exports utility`), for
+the brand you are looking at:
+
+- **Tax report** for any period: net, tax and gross per treatment (taxable, small business, reverse
+  charge, exempt, …), place of supply and rate, credit notes subtracted. Under § 19 the turnover is
+  listed with a tax of zero. Tax owed in other member states (the OSS figure) is shown separately.
+- **Documents as CSV**, one row per document and rate, credit notes with a minus. Three profiles:
+  semicolon with UTF-8 (Excel, DATEV, Lexware Office), semicolon with Windows-1252, comma with a
+  decimal point. The column names are fixed German headers, so a saved import mapping keeps working.
+- **PDF archive**: every document of the period in one ZIP, built by a queued job
+  (`BuildPdfArchive`) and stored on `invoices.export.disk` (private, `local` by default) until it is
+  downloaded.
+
+The same from the command line, with any combination of delimiter, encoding and decimal mark:
+
+```bash
+php artisan invoices:export csv --month=2026-08 --output=august.csv
+php artisan invoices:export report --quarter=2026-Q3
+php artisan invoices:export pdf --year=2025 --output=belege-2025.zip   # or --queue
+```
+
+Periods: `--from/--to`, `--month`, `--quarter`, `--year`, in the application's time zone. Lines
+written before 2.2 carry no mechanism and place of supply; the export derives both from the
+document and says how many it derived.
+
 ## What it deliberately does not do
 
-- **Bookkeeping, DATEV export, dunning.** Different job, different software.
+- **Bookkeeping, a native DATEV EXTF batch, dunning.** The CSV imports into bookkeeping software;
+  posting accounts are that software's job.
 - **Storing the PDF.** It is generated on demand and byte-identical every time, so a stored copy
   would be a second source of truth with nothing to add — and a disk to manage, back up and keep
   for ten years.
@@ -248,7 +302,8 @@ Bind `Contracts\VatIdVerifier` to your own implementation to use the German BZSt
   there is no `invoices:send` yet.
 - **The OSS threshold.** Below €10,000 of annual turnover into other EU countries the seller's own
   rate applies; above it, the recipient's. That is a state over time and needs a turnover figure,
-  which is a bookkeeping question rather than a per-line one. The seam is named in the code.
+  which is a bookkeeping question rather than a per-line one. The seam is named in the code, and the
+  rates for the other side of it ship with the addon (see OSS above).
   The same threshold matters under **§ 19**: a small business selling to a consumer in another
   member state above it owes that country's VAT unless it uses the EU small business scheme
   (§ 19a UStG). `tax.small_business.eu_threshold_mode` and `eu_scheme` tell the addon which case

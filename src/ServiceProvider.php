@@ -6,7 +6,9 @@ use Goldnead\BrandContext\Settings\SettingsRegistry;
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Contracts\SenderIdentityResolver;
 use Goldnead\Invoices\Contracts\VatIdVerifier;
+use Goldnead\Invoices\Cp\Exports;
 use Goldnead\Invoices\Cp\OutstandingVatChecks;
+use Goldnead\Invoices\Http\Controllers\Cp\ExportController;
 use Goldnead\Invoices\Http\Middleware\RequireBusinessBuyer;
 use Goldnead\Invoices\Integrations\Insights\Gross;
 use Goldnead\Invoices\Integrations\Insights\Issued;
@@ -218,6 +220,24 @@ class ServiceProvider extends AddonServiceProvider
                 ->navTitle('USt-IdNr.-Prüfungen')
                 ->icon('shield-key')
                 ->description('Rechnungen, deren USt-IdNr. beim Kauf nicht bestätigt werden konnte.');
+
+            // The exports for tax and bookkeeping. A utility for the same
+            // reasons as the one above, and one more: its routes registered
+            // through `->routes()` inherit `can:access invoice-exports utility`,
+            // so every download is guarded by the permission that shows the
+            // screen, without a second check that could drift from the first.
+            Utility::register('invoice-exports')
+                ->view('invoices::cp.exports', app(Exports::class))
+                ->title(__('invoices::exports.title'))
+                ->navTitle(__('invoices::exports.nav_title'))
+                ->icon('download')
+                ->description(__('invoices::exports.description'))
+                ->routes(function ($router) {
+                    $router->get('csv', [ExportController::class, 'csv'])->name('csv');
+                    $router->get('report', [ExportController::class, 'report'])->name('report');
+                    $router->post('archive', [ExportController::class, 'archive'])->name('archive');
+                    $router->get('archive/{file}', [ExportController::class, 'download'])->name('download');
+                });
         });
 
         return $this;

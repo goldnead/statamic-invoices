@@ -24,6 +24,7 @@
         "larastan/larastan": "^3.0"
     },
     "suggest": {
+        "ext-zip": "Build the PDF archive of a period (Invoice export utility, invoices:export pdf)",
         "goldnead/statamic-insights": "Show documents issued, net, gross and VAT on the Insights dashboard, split by kind, buyer country and tax rate"
     },
     "autoload": {

@@ -135,7 +135,11 @@ final class TaxRules
         'product_classes' => [],
         'exemptions' => [],
         'zones' => [],
-        'oss' => ['destination_taxation' => false],
+        // `shipped_rates`: let {@see EuStandardRates} answer for a member state no zone
+        // names. Off by default, so an installation that never asked keeps getting
+        // "undetermined" where it got it before. `shipped_rates_class`: the tax class
+        // those standard rates stand for.
+        'oss' => ['destination_taxation' => false, 'shipped_rates' => false, 'shipped_rates_class' => 'standard'],
         'eu_member_states' => null,
         // Read by BuyerAdmission and the console command, not by this class: the
         // confirmation is a network call and this is a calculation. They are listed
@@ -186,7 +190,7 @@ final class TaxRules
      */
     private const CHECKED_SUB_KEYS = [
         'small_business' => ['enabled', 'eu_scheme', 'eu_threshold_mode'],
-        'oss' => ['destination_taxation'],
+        'oss' => ['destination_taxation', 'shipped_rates', 'shipped_rates_class'],
     ];
 
     /**
@@ -760,6 +764,16 @@ final class TaxRules
 
         [$zoneKey, $zone] = $this->zoneFor($rateCountry);
 
+        if (is_array($zone) && ($zone['shipped'] ?? false) === true) {
+            $notes[] = sprintf(
+                'Standard rate of %s from the EU table shipped with this addon, as of %s '
+                .'(tax.oss.shipped_rates). Rates change; a zone written for %s overrides it.',
+                $rateCountry,
+                EuStandardRates::AS_OF,
+                $rateCountry,
+            );
+        }
+
         if ($zone === null) {
             return TaxResult::undetermined(
                 code: 'no_zone_for_country',
@@ -1137,6 +1151,11 @@ final class TaxRules
      * The most specific matching zone. A "*" in `countries` is the placeholder for all
      * remaining countries; a country named explicitly always beats it.
      *
+     * With `tax.oss.shipped_rates` on, the shipped EU table sits between the two: a zone
+     * the operator wrote for the country still wins, and the table beats the
+     * placeholder, because a placeholder rate for "all the rest" is a guess about
+     * every member state at once and the table is a statement about this one.
+     *
      * @return array{0: string|null, 1: array<string, mixed>|null}
      */
     private function zoneFor(string $country): array
@@ -1163,6 +1182,15 @@ final class TaxRules
 
             if ($placeholder[0] === null && in_array('*', $countries, true)) {
                 $placeholder = [(string) $key, $zone];
+            }
+        }
+
+        if ((bool) $this->cfg('oss.shipped_rates', false) && $this->isEuMemberState($country)) {
+            $class = $this->cfg('oss.shipped_rates_class', 'standard');
+            $shipped = EuStandardRates::zoneFor($country, is_string($class) && $class !== '' ? $class : 'standard');
+
+            if ($shipped !== null) {
+                return $shipped;
             }
         }
 

@@ -151,7 +151,10 @@ class InvoiceWriter
 
             InvoiceItem::whileWriting(function () use ($invoice, $zeilen) {
                 foreach ($zeilen as $zeile) {
-                    unset($zeile['tax_reason'], $zeile['tax_mechanism'], $zeile['tax_code'], $zeile['tax_notes']);
+                    // Mechanism and place of supply stay on the line: the export
+                    // and the tax report read them. The reason and the notes are
+                    // the invoice's, the code only exists for undetermined lines.
+                    unset($zeile['tax_reason'], $zeile['tax_code'], $zeile['tax_notes']);
                     $invoice->items()->create($zeile);
                 }
             });
@@ -300,7 +303,7 @@ class InvoiceWriter
                 foreach ($original->items as $zeile) {
                     $storno->items()->create($zeile->only([
                         'product', 'name', 'quantity', 'unit_net_cent', 'discount_cent',
-                        'net_cent', 'tax_rate_bp', 'tax_cent', 'gross_cent',
+                        'net_cent', 'tax_rate_bp', 'tax_mechanism', 'place_of_supply', 'tax_cent', 'gross_cent',
                     ]));
                 }
             });
@@ -480,9 +483,32 @@ class InvoiceWriter
             'gross_cent' => $brutto,
             'tax_reason' => $satz->reason,
             'tax_mechanism' => $satz->mechanism,
+            'place_of_supply' => $this->placeOfSupply($satz, $payment),
             'tax_code' => null,
             'tax_notes' => $satz->notes,
         ];
+    }
+
+    /**
+     * The country whose VAT this line answers to, frozen onto the line.
+     *
+     * The rules name it wherever they decided it. Where they did not — § 19,
+     * which suspends the question rather than answering it — it is the
+     * seller's own country: a supply under the domestic small business scheme
+     * is a supply taxed (or not) at home. That is what the tax report groups
+     * by, and 20 % alone cannot tell Austria from France.
+     */
+    protected function placeOfSupply(TaxResult $satz, Payment $payment): ?string
+    {
+        $land = $satz->placeOfSupplyCountry;
+
+        if ($land === null && $satz->mechanism === TaxResult::MECHANISM_SMALL_BUSINESS) {
+            $land = config('invoices.tax.merchant_country', 'DE');
+        }
+
+        $land ??= $payment->country;
+
+        return is_string($land) && preg_match('/^[A-Za-z]{2}$/', $land) === 1 ? strtoupper($land) : null;
     }
 
     /**

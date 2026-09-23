@@ -49,6 +49,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $tax_note
  * @property array<string, mixed>|null $meta
  * @property Collection<int, InvoiceItem> $items
+ * @property-read Invoice|null $reverses
  */
 class Invoice extends Model
 {

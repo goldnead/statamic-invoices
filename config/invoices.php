@@ -84,6 +84,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Exports for the books
+    |--------------------------------------------------------------------------
+    |
+    | The Control Panel utility "Rechnungsexport" and `php artisan
+    | invoices:export` write a CSV of a period, a tax report, and a ZIP of the
+    | period's PDFs. The ZIP is built by a queued job and waits here until it
+    | is downloaded. Keep it on a private disk: it holds every invoice of the
+    | period, names and addresses included, and it leaves only through the
+    | Control Panel route that checks the utility permission.
+    |
+    */
+
+    'export' => [
+        'disk' => env('INVOICES_EXPORT_DISK', 'local'),
+        'directory' => 'invoices/exports',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sending it to the buyer
     |--------------------------------------------------------------------------
     |
@@ -283,8 +302,23 @@ return [
         // your turnover over the year, not something this class can see — so it is a
         // switch. Flip it when you register for OSS, and fill in the zones for the
         // countries you sell to, or those lines come back undetermined.
+        //
+        // `shipped_rates` lets the EU table that ships with this addon answer for a
+        // member state that has no zone above (Support\EuStandardRates: the standard
+        // rate of all 27, with the date it was read and its sources). Off by default,
+        // so nothing changes for an installation that has not asked. It only matters
+        // together with `destination_taxation`; below the threshold your own rate
+        // applies either way. A zone you write for a country always beats the table,
+        // and the table beats a '*' placeholder.
+        //
+        // Standard rates only. `shipped_rates_class` names the tax class they stand
+        // for; a product in any other class (a reduced rate, say) still needs a zone
+        // of its own, because reduced rates differ by country and by kind of supply.
+        // Check the rates of the countries you sell into before the first invoice.
         'oss' => [
             'destination_taxation' => env('INVOICES_OSS_DESTINATION', false),
+            'shipped_rates' => env('INVOICES_OSS_SHIPPED_RATES', false),
+            'shipped_rates_class' => 'standard',
         ],
 
         // The sentences that go on the invoice. German, because the invoice is.

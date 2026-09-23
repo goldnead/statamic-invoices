@@ -12,11 +12,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * carry two of them — sheet music at 7% beside a course at 19% — and that is
  * exactly the case a single figure cannot express.
  *
+ * @property string|null $product
+ * @property string $name
  * @property int $quantity
  * @property int $unit_net_cent
  * @property int $discount_cent
  * @property int $net_cent
  * @property int $tax_rate_bp
+ * @property string|null $tax_mechanism one of TaxResult::MECHANISM_*, null on lines written before 2.2
+ * @property string|null $place_of_supply ISO country whose VAT applies, null on lines written before 2.2
  * @property int $tax_cent
  * @property int $gross_cent
  */

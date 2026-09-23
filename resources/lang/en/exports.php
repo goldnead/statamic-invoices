@@ -1,0 +1,84 @@
+<?php
+
+return [
+
+    // The "Invoice export" utility in the Control Panel and the sentences the
+    // export writes itself. The CSV column names are not here: they are fixed,
+    // because an import mapping saved in DATEV or Lexware depends on them
+    // (Export\CsvExport).
+
+    'title' => 'Invoice export',
+    'nav_title' => 'Invoice export',
+    'description' => 'Invoices and credit notes of a period for tax and bookkeeping: as CSV, as a ZIP of all PDFs, and as a tax report.',
+    'intro' => 'Every figure comes from the issued documents, credit notes with a minus. Nothing is recalculated. On the command line: php artisan invoices:export',
+
+    'period_label' => ':from to :to',
+    'period_heading' => 'Period',
+    'period_current' => 'Selected: :period',
+    'period_from' => 'First day',
+    'period_to' => 'Last day',
+    'period_apply' => 'Show',
+    'error_order' => 'The period ends (:to) before it starts (:from).',
+    'error_month' => '":value" is not a month. Expected YYYY-MM, e.g. 2026-08.',
+    'error_quarter' => '":value" is not a quarter. Expected YYYY-Q1 to YYYY-Q4.',
+    'error_year' => '":value" is not a year. Expected YYYY.',
+    'error_date' => '":value" is not a date. Expected YYYY-MM-DD or DD.MM.YYYY.',
+    'error_incomplete' => 'A period needs both a first and a last day.',
+    'error_csv_option' => ':key has no option ":value". Choose one of: :allowed.',
+    'error_csv_comma' => 'A comma as separator and as decimal mark cannot be told apart. Choose a semicolon or a decimal point.',
+    'period_invalid' => 'This period cannot be read: :reason Showing the previous month instead.',
+    'preset_last_month' => 'Last month',
+    'preset_this_month' => 'This month',
+    'preset_last_quarter' => 'Last quarter',
+    'preset_this_quarter' => 'This quarter',
+    'preset_last_year' => 'Last year',
+    'preset_this_year' => 'This year',
+    'brand_scope' => 'Documents of the brand :brand only.',
+
+    'report_heading' => 'Tax report',
+    'report_subheading' => '{0} No documents|{1} One document|[2,*] :count documents',
+    'report_subheading_credit_notes' => '{1} , one of them a credit note|[2,*] , :count of them credit notes',
+    'report_empty' => 'Neither an invoice nor a credit note was issued in this period.',
+    'report_treatment' => 'Treatment',
+    'report_country' => 'Place of supply',
+    'report_rate' => 'Rate',
+    'report_documents' => 'Documents',
+    'report_net' => 'Net',
+    'report_tax' => 'Tax',
+    'report_gross' => 'Gross',
+    'report_total' => 'Total',
+    'report_oss' => 'Of which tax owed in other EU countries (One-Stop-Shop): :amount',
+    'report_derived' => '{1} One line dates from before version 2.2 and does not carry its treatment and place of supply itself. Both are derived from the document.|[2,*] :count lines date from before version 2.2 and do not carry their treatment and place of supply themselves. Both are derived from the document.',
+    'report_currencies' => 'This period holds documents in more than one currency (:currencies). The totals add them without conversion.',
+    'report_small_business' => 'Small business under § 19 UStG: the turnover is in the report, no tax is due.',
+    'report_note' => 'The figures a return is filled in from. Which figure goes on which line is your tax adviser\'s call.',
+
+    'mechanism' => [
+        'standard' => 'Taxable',
+        'small_business' => 'Small business',
+        'exempt' => 'Exempt',
+        'reverse_charge' => 'Reverse charge',
+        'intra_community_supply' => 'Intra-community supply',
+        'outside_scope' => 'Outside the scope',
+        'export' => 'Export',
+    ],
+
+    'download_heading' => 'Download',
+    'download_subheading' => 'One row per document and rate, credit notes with a minus.',
+    'download_csv' => 'Documents as CSV',
+    'download_report_csv' => 'Tax report as CSV',
+    'format_excel' => 'Semicolon, UTF-8 (Excel, DATEV, Lexware Office)',
+    'format_ansi' => 'Semicolon, Windows-1252 (older desktop programs)',
+    'format_intl' => 'Comma, UTF-8, decimal point',
+
+    'archive_heading' => 'PDF archive',
+    'archive_subheading' => 'Every document of the period as a PDF in one ZIP file. The archive is built in the background and waits here afterwards.',
+    'archive_build' => 'Build archive',
+    'archive_queued' => 'The archive for :period is being built.',
+    'archive_none' => 'No archive built yet.',
+    'archive_pending' => 'being built',
+    'archive_failed' => 'failed',
+    'archive_download' => 'Download',
+    'archive_empty_file' => 'No document was issued in the period :period.',
+
+];

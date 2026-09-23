@@ -201,6 +201,7 @@ class Settings implements ProvidesSettings
                     static::field('tax.default_product_class', 'string'),
                     static::field('tax.assume_country_when_missing', 'string'),
                     static::field('tax.oss.destination_taxation', 'boolean'),
+                    static::field('tax.oss.shipped_rates', 'boolean'),
                 ],
             ],
             [

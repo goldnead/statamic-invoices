@@ -157,7 +157,11 @@ return [
         ],
         'tax_oss_destination_taxation' => [
             'label' => 'Bestimmungslandprinzip, OSS',
-            'description' => 'An, wenn Sie fuer OSS registriert sind: B2C-Verkaeufe in die EU tragen dann den Satz des Empfaengerlandes. Dafuer muessen die Zonen der Laender, in die Sie verkaufen, in config/invoices.php gefuellt sein, sonst kommen diese Zeilen unbestimmt zurueck.',
+            'description' => 'An, wenn Sie fuer OSS registriert sind: B2C-Verkaeufe in die EU tragen dann den Satz des Empfaengerlandes. Dafuer muessen die Zonen der Laender, in die Sie verkaufen, in config/invoices.php gefuellt sein oder die mitgelieferten EU-Normalsätze (Schalter darunter) an, sonst kommen diese Zeilen unbestimmt zurueck.',
+        ],
+        'tax_oss_shipped_rates' => [
+            'label' => 'Mitgelieferte EU-Normalsätze',
+            'description' => 'Lässt die Tabelle, die dieses Addon mitbringt, den Normalsatz jedes EU-Landes liefern, für das in config/invoices.php keine eigene Zone steht. Wirkt nur zusammen mit dem Bestimmungslandprinzip. Nur Normalsätze, Stand siehe Support\EuStandardRates; die Sätze der Länder, in die Sie verkaufen, bitte prüfen. Eine eigene Zone geht immer vor.',
         ],
 
         'tax_texts_small_business' => [

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+**Exports for tax and bookkeeping.** A new Control Panel utility, "Invoice export", and a command,
+`invoices:export`, hand a period to whoever does the books: a CSV with one row per document and
+rate (credit notes with a minus; semicolon or comma, UTF-8 with or without BOM, or Windows-1252),
+a ZIP of the period's PDFs built by a queued job, and a tax report per treatment, place of supply
+and rate. Under § 19 the report lists the turnover with no tax. Periods are read in the
+application's time zone; one that cannot be read is named on the screen, not replaced in silence.
+The CSVs stream, so a year does not run into the request timeout.
+
+**EU standard rates ship with the addon, switched off.** `tax.oss.shipped_rates` lets
+`Support\EuStandardRates` (all 27 member states, as of 2026-02-02, with sources) answer for a
+consumer in a member state no zone names, once destination taxation applies. A zone you write
+still wins; reduced classes still need their own zone; reverse charge and § 19 are unchanged.
+Installations that do not switch it on behave exactly as before.
+
+**Each invoice line keeps where its tax is owed.** New nullable columns `tax_mechanism` and
+`place_of_supply` on `invoice_items` (migration `2026_09_23_120000`), written by the writer and
+copied onto credit notes. Lines from before carry neither; the export derives both and counts them.
+
+New config: `export.disk`, `export.directory`, `tax.oss.shipped_rates`,
+`tax.oss.shipped_rates_class`.
+
 ## 2.1.2 — 2026-09-09
 
 **A number that was already issued rolled back a fulfilment.** The counter runs per brand and
