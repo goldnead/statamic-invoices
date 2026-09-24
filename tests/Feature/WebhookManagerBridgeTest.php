@@ -4,6 +4,7 @@ namespace Goldnead\Invoices\Tests\Feature;
 
 use Goldnead\BrandContext\ServiceProvider as BrandContextServiceProvider;
 use Goldnead\Invoices\Events\InvoiceDelivered;
+use Goldnead\Invoices\Events\InvoiceIssued;
 use Goldnead\Invoices\Integrations\WebhookManager\InvoicesTrigger;
 use Goldnead\Invoices\Integrations\WebhookManager\WebhookManagerBridge;
 use Goldnead\Invoices\Integrations\WebhookManager\WebhookPayload;
@@ -118,7 +119,8 @@ class WebhookManagerBridgeTest extends TestCase
 
         $this->assertSame('invoices', $detected->trigger->sourceType);
         $this->assertSame((string) $rechnung->id, $detected->trigger->sourceReference);
-        $this->assertSame(['event', 'occurred_at', 'brand', 'subject_type', 'subject_id', 'invoice'], array_keys($body));
+        $this->assertSame(['event', 'event_id', 'occurred_at', 'brand', 'subject_type', 'subject_id', 'invoice'], array_keys($body));
+        $this->assertSame($rechnung->issued_at->format(\DATE_ATOM), $body['occurred_at']);
         $this->assertSame('2026-09-24T10:00:00+00:00', $body['occurred_at']);
         $this->assertSame(['invoice', $rechnung->id], [$body['subject_type'], $body['subject_id']]);
         $this->assertSame([
@@ -211,6 +213,81 @@ class WebhookManagerBridgeTest extends TestCase
             ->pluck('webhook_outbounds.handle')->all();
         $this->assertSame(['zweite-hook'], $hooks);
         $this->assertFalse(app('brand-context')->hasCurrent());
+    }
+
+    #[Test]
+    public function an_invoice_naming_a_brand_that_cannot_be_set_is_not_delivered_through_the_current_one(): void
+    {
+        config(['brand-context.multi_brand' => true]);
+        Queue::fake();
+
+        $default = (int) DB::table('brands')->where('is_default', true)->value('id');
+        config(['invoices.number.prefix_per_brand' => [$default => 'NL', 99 => 'XX']]);
+        app('brand-context')->runFor($default, fn () => $this->hook('invoices.issued', 'current-hook'));
+
+        $heard = [];
+        Event::listen(TriggerDetected::class, function (TriggerDetected $d) use (&$heard) {
+            $heard[] = $d->trigger->triggerHandle;
+        });
+
+        $rechnung = app('brand-context')->runFor($default, fn () => app(InvoiceWriter::class)->forPayment($this->bezahlt(['brand_id' => 99])));
+
+        $this->assertSame(99, (int) $rechnung->brand_id);
+        $this->assertSame([], $heard);
+        $this->assertSame(0, DB::table('webhook_deliveries')->count());
+    }
+
+    #[Test]
+    public function an_invoice_inside_a_transaction_goes_out_after_the_commit_and_never_after_a_rollback(): void
+    {
+        $heard = [];
+        Event::listen(TriggerDetected::class, function (TriggerDetected $d) use (&$heard) {
+            $heard[] = $d->trigger->triggerHandle;
+        });
+
+        try {
+            DB::transaction(function () {
+                app(InvoiceWriter::class)->forPayment($this->bezahlt());
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame([], $heard, 'A rolled back invoice reached the manager.');
+
+        DB::transaction(function () use (&$heard) {
+            app(InvoiceWriter::class)->forPayment($this->bezahlt());
+
+            $this->assertSame([], $heard, 'Handed over while the transaction was still open.');
+        });
+
+        $this->assertSame(['invoices.issued'], $heard);
+    }
+
+    #[Test]
+    public function the_same_moment_told_twice_carries_the_same_event_id(): void
+    {
+        Event::fake([TriggerDetected::class]);
+
+        $rechnung = app(InvoiceWriter::class)->forPayment($this->bezahlt());
+        Carbon::setTestNow('2026-09-24 10:00:30');
+        InvoiceIssued::dispatch($rechnung->fresh(['items']));
+        InvoiceDelivered::dispatch($rechnung, 'wer@example.com');
+        InvoiceDelivered::dispatch($rechnung, 'WER@example.com');
+        Carbon::setTestNow('2026-09-25 09:00:00');
+        InvoiceDelivered::dispatch($rechnung, 'wer@example.com');
+
+        $ids = collect(Event::dispatched(TriggerDetected::class))
+            ->map(fn ($call) => [$call[0]->trigger->triggerHandle, $call[0]->trigger->payload['event_id']]);
+        $issued = $ids->where(0, 'invoices.issued')->pluck(1)->values()->all();
+        $delivered = $ids->where(0, 'invoices.delivered')->pluck(1)->values()->all();
+
+        $this->assertCount(2, $issued);
+        $this->assertSame($issued[0], $issued[1]);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{40}$/', $issued[0]);
+        $this->assertSame($delivered[0], $delivered[1], 'The same delivery told twice.');
+        $this->assertNotSame($delivered[0], $delivered[2], 'A resend the next day is a new moment.');
     }
 
     #[Test]

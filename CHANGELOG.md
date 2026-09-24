@@ -11,6 +11,14 @@
   the row: no postal address, no seller block, no VAT check record, no `meta`. Every body carries
   `event`, `occurred_at`, `brand` (`id`, `handle`), `subject_type` and `subject_id`. Delivered in
   the brand of the document. List per trigger in the README.
+- Every body carries `event_id` (`sha1` of handle, document and its own time), the same when the
+  same moment is told twice; `occurred_at` and the manager's event time are `issued_at`, not the
+  time of sending.
+- Handed over after the surrounding database transaction commits, never after a rollback.
+- A document naming a brand that cannot be set is not delivered at all (logged), instead of going
+  out through the current brand's hooks.
+- README: order between triggers is not guaranteed (`invoices.delivered` can arrive before
+  `invoices.issued`); sort by `occurred_at`, deduplicate by `event_id`.
 - Config `webhook_manager.enabled` (`INVOICES_WEBHOOK_MANAGER`, default on).
 - The coupling is optional: composer `suggest`, the manager's classes are checked by name before
   anything that implements its interface is loaded, and registration retries at the end of the

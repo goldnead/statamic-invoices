@@ -46,9 +46,13 @@ class InvoicesTrigger implements TriggerInterface
 
     public function build(mixed $source, array $context = []): TriggerEvent
     {
-        $at = Carbon::now()->toImmutable();
+        // The moment's own time, not the clock at dispatch.
+        $at = is_object($source)
+            ? Carbon::instance(WebhookPayload::occurredAt($source))->toImmutable()
+            : Carbon::now()->toImmutable();
         $payload = is_object($source) ? WebhookPayload::build($this->moment, $source, $at) : [
             'event' => $this->handle(),
+            'event_id' => sha1($this->handle().'|'.$at->format(\DATE_ATOM)),
             'occurred_at' => $at->format(\DATE_ATOM),
             'brand' => null,
         ];

@@ -124,13 +124,22 @@ With `goldnead/statamic-webhook-manager` installed, the three events appear ther
 trigger sends nothing, data leaves only through an outbound webhook somebody creates.
 `INVOICES_WEBHOOK_MANAGER=false` (`invoices.webhook_manager.enabled`) hides them. Each is
 delivered in the brand of the document, not the brand that happens to be current (an invoice is
-written in a payment webhook, where none is).
+written in a payment webhook, where none is). A document naming a brand that cannot be set is
+**not delivered** and logged, rather than sent through the current brand's hooks. A moment inside
+a database transaction goes out after the commit, never after a rollback.
+
+**Duplicates and order.** `event_id` is the same every time the same moment is told again, so a
+receiver can drop the repeat; a delivery to the same address within the same minute counts as
+one. `occurred_at` is the document's own time (`issued_at`), not the time of sending. **Order is
+not guaranteed:** `invoices.delivered` can reach a receiver before `invoices.issued` (the mail goes
+out from a listener of the same event). Sort by `occurred_at`, deduplicate by `event_id`.
 
 Every body has the shape the whole suite sends:
 
 ```json
 {
   "event": "invoices.issued",
+  "event_id": "9b2e61c0d4a7f3e8b1c6d0a9e4f7b2c5d8a1e3f6",
   "occurred_at": "2026-09-24T10:12:03+02:00",
   "brand": { "id": 2, "handle": "nordlicht" },
   "subject_type": "invoice",
