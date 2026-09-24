@@ -21,11 +21,13 @@
         "orchestra/testbench": "^10.0|^11.0",
         "laravel/pint": "^1.18",
         "pestphp/pest": "^3.0|^4.0",
-        "larastan/larastan": "^3.0"
+        "larastan/larastan": "^3.0",
+        "goldnead/statamic-webhook-manager": "^2.9"
     },
     "suggest": {
         "ext-zip": "Build the PDF archive of a period (Invoice export utility, invoices:export pdf)",
-        "goldnead/statamic-insights": "Show documents issued, net, gross and VAT on the Insights dashboard, split by kind, buyer country and tax rate"
+        "goldnead/statamic-insights": "Show documents issued, net, gross and VAT on the Insights dashboard, split by kind, buyer country and tax rate",
+        "goldnead/statamic-webhook-manager": "Offer issued invoices, credit notes and deliveries as triggers for outbound webhooks (bookkeeping, a CRM); picked up automatically where it is installed"
     },
     "autoload": {
         "psr-4": {

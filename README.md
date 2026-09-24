@@ -117,6 +117,43 @@ guessing it would put a wrong figure on a tax document.
 
 Filing it and handing it to an accountant hang off those.
 
+### As webhooks, through the Webhook Manager
+
+With `goldnead/statamic-webhook-manager` installed, the three events appear there as triggers
+("Invoices: invoice issued" / "Rechnungen: Rechnung ausgestellt"). Nothing to switch on: offering a
+trigger sends nothing, data leaves only through an outbound webhook somebody creates.
+`INVOICES_WEBHOOK_MANAGER=false` (`invoices.webhook_manager.enabled`) hides them. Each is
+delivered in the brand of the document, not the brand that happens to be current (an invoice is
+written in a payment webhook, where none is).
+
+Every body has the shape the whole suite sends:
+
+```json
+{
+  "event": "invoices.issued",
+  "occurred_at": "2026-09-24T10:12:03+02:00",
+  "brand": { "id": 2, "handle": "nordlicht" },
+  "subject_type": "invoice",
+  "subject_id": 17,
+  "invoice": { "...": "see below" }
+}
+```
+
+| Trigger | Besides the common keys |
+|---|---|
+| `invoices.issued` | `invoice` |
+| `invoices.credit_note_issued` | `credit_note` (same shape as `invoice`), `reverses` (`id`, `number`) |
+| `invoices.delivered` | `invoice`, `to` (the address it was mailed to) |
+
+**`invoice`**: `id`, `number`, `kind` (`invoice`, `credit_note`), `payment_id`,
+`reverses_invoice_id`, `issued_at`, `currency`, `net_cent`, `tax_cent`, `gross_cent`, `tax_zone`,
+`buyer_name`, `buyer_email`, `buyer_country`, `buyer_vat_id`, `items[]` (`product`, `name`,
+`quantity`, `unit_net_cent`, `discount_cent`, `net_cent`, `tax_rate_bp`, `tax_cent`, `gross_cent`).
+
+**Never in a body:** the postal address, the seller block, the record of the VAT id check (service,
+status, the authority's reference), `meta`, a link to the PDF. Money is always `*_cent` next to
+`currency`; times are ISO 8601. `brand` is `null` where brand-context cannot name one.
+
 ## The PDF
 
 The document is rendered from the same Blade template the preview shows. There is no second layout

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (2.3.0)
+
+### Added
+
+- **Webhook Manager triggers.** With `goldnead/statamic-webhook-manager` installed,
+  `invoices.issued`, `invoices.credit_note_issued` and `invoices.delivered` appear there as
+  triggers, labelled in German and English. Each body is a chosen list of fields (number, kind,
+  amounts in cent with currency, tax zone, buyer name, email, country and VAT id, the lines), never
+  the row: no postal address, no seller block, no VAT check record, no `meta`. Every body carries
+  `event`, `occurred_at`, `brand` (`id`, `handle`), `subject_type` and `subject_id`. Delivered in
+  the brand of the document. List per trigger in the README.
+- Config `webhook_manager.enabled` (`INVOICES_WEBHOOK_MANAGER`, default on).
+- The coupling is optional: composer `suggest`, the manager's classes are checked by name before
+  anything that implements its interface is loaded, and registration retries at the end of the
+  booted queue. A new test boots the addon in its own process with the manager hidden.
+
 ## 2.2.0 — 2026-09-23
 
 ### Upgrading

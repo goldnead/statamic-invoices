@@ -125,6 +125,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Webhook Manager
+    |--------------------------------------------------------------------------
+    |
+    | Where goldnead/statamic-webhook-manager is installed, `invoices.issued`,
+    | `invoices.credit_note_issued` and `invoices.delivered` show up there as
+    | triggers. On by default: offering a trigger sends nothing, data leaves
+    | only once somebody creates an outbound webhook on one. What each body
+    | carries is listed in the README.
+    |
+    */
+
+    'webhook_manager' => [
+        'enabled' => env('INVOICES_WEBHOOK_MANAGER', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Where a Kleinbetragsrechnung ends
     |--------------------------------------------------------------------------
     |

@@ -14,6 +14,7 @@ use Goldnead\Invoices\Integrations\Insights\Gross;
 use Goldnead\Invoices\Integrations\Insights\Issued;
 use Goldnead\Invoices\Integrations\Insights\Net;
 use Goldnead\Invoices\Integrations\Insights\Tax;
+use Goldnead\Invoices\Integrations\WebhookManager\WebhookManagerBridge;
 use Goldnead\Invoices\Sending\BrandMailer;
 use Goldnead\Invoices\Sending\BrandSenderIdentity;
 use Goldnead\Invoices\Support\BuyerAdmission;
@@ -65,6 +66,10 @@ class ServiceProvider extends AddonServiceProvider
 
         $this->app->singleton(NumberSeries::class);
         $this->app->singleton(InvoiceWriter::class);
+
+        // A singleton, so its "already registered" guard holds across the
+        // first attempt and the retry in registerWebhookManagerBridge().
+        $this->app->singleton(WebhookManagerBridge::class);
 
         // Bound to the interface, not used as one. Which engine turns the
         // document into a PDF is an infrastructure decision, and a host that
@@ -174,6 +179,36 @@ class ServiceProvider extends AddonServiceProvider
         parent::boot();
 
         $this->bootRoutes();
+
+        // From boot(), not bootAddon(): bootAddon() runs inside an
+        // app->booted() callback, where a nested booted() fires at once, still
+        // before a sibling's bootAddon(). Queued here, it runs after all of them.
+        $this->registerWebhookManagerBridge();
+    }
+
+    /**
+     * Offer the invoice moments to the webhook manager, if it is there.
+     *
+     * Twice, the second time at the very end of the booted queue: the first
+     * attempt can come before the manager bound its service. The bridge bails
+     * without marking itself booted then, and ignores every later attempt.
+     */
+    protected function registerWebhookManagerBridge(): void
+    {
+        $boot = function (): void {
+            try {
+                $this->app->make(WebhookManagerBridge::class)->boot($this->app->make('events'));
+            } catch (Throwable $e) {
+                Log::warning('statamic-invoices: the webhook manager triggers could not be registered.', [
+                    'exception' => $e->getMessage(),
+                ]);
+            }
+        };
+
+        $this->app->booted(function () use ($boot): void {
+            $boot();
+            $this->app->booted($boot);
+        });
     }
 
     /**
