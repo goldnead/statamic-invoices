@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices\Models;
 
+use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Support\TaxZone;
 use Goldnead\Invoices\Support\VatIdStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -188,5 +189,17 @@ class Invoice extends Model
     public function isCreditNote(): bool
     {
         return $this->reverses_invoice_id !== null;
+    }
+
+    /**
+     * The document as PDF bytes, through whatever engine the host bound.
+     *
+     * The name is the contract with statamic-payments: its `InvoiceBridge` asks
+     * an invoice by shape (`pdf()` first) and offers the portal download only
+     * when the method exists. Nothing is rendered until somebody calls this.
+     */
+    public function pdf(): string
+    {
+        return app(PdfRenderer::class)->render($this);
     }
 }

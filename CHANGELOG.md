@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.5.1 — 2026-09-26
+
+### Fixed
+
+- The customer portal of `statamic-payments` now offers the invoice download. Its `InvoiceBridge`
+  asks an invoice for `pdf()`, `toPdf()`, `download()`, `html()` or `render()`, and the model had
+  none of them, so the button never appeared. New `Invoice::pdf(): string` renders through the
+  bound `PdfRenderer`. Purely additive; a test runs the real portal against the real bridge.
+
 ## 2.5.0 — 2026-09-25
 
 ### Added
