@@ -36,7 +36,7 @@
                         @php($letzte = $invoice->vatIdChecks->first())
                         <ui-table-row>
                             <ui-table-cell>{{ $invoice->number }}</ui-table-cell>
-                            <ui-table-cell>{{ $invoice->issued_at?->format('d.m.Y') }}</ui-table-cell>
+                            <ui-table-cell>{{ $invoice->issued_at ? \Goldnead\Invoices\Support\DisplayTime::of($invoice->issued_at)->format('d.m.Y') : '' }}</ui-table-cell>
                             <ui-table-cell>{{ $invoice->buyer_name }}</ui-table-cell>
                             <ui-table-cell>{{ $invoice->buyer_vat_id }}</ui-table-cell>
                             <ui-table-cell>{{ $invoice->zone()?->label() ?? '—' }}</ui-table-cell>
@@ -47,10 +47,10 @@
                                     {{-- Die einzige Zeile, die eine Entscheidung braucht, und
                                          deshalb die einzige, die sich abhebt. --}}
                                     <ui-badge color="red" text="ungültig, bitte ansehen" />
-                                    {{ $letzte->checked_at?->format('d.m.Y H:i') }}
+                                    {{ $letzte->checked_at ? \Goldnead\Invoices\Support\DisplayTime::of($letzte->checked_at)->format('d.m.Y H:i') : '' }}
                                 @else
                                     <ui-badge text="{{ $letzte->verdict()?->value ?? 'unklar' }}" />
-                                    {{ $letzte->checked_at?->format('d.m.Y H:i') }}
+                                    {{ $letzte->checked_at ? \Goldnead\Invoices\Support\DisplayTime::of($letzte->checked_at)->format('d.m.Y H:i') : '' }}
                                 @endif
                             </ui-table-cell>
                         </ui-table-row>

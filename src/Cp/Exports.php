@@ -9,6 +9,7 @@ use Goldnead\Invoices\Export\ArchiveStore;
 use Goldnead\Invoices\Export\CsvFormat;
 use Goldnead\Invoices\Export\Period;
 use Goldnead\Invoices\Export\TaxReport;
+use Goldnead\Invoices\Support\DisplayTime;
 use Goldnead\Invoices\Support\Money;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -74,7 +75,7 @@ final class Exports
             // every other date in, not the server's.
             'archivedAt' => fn (int $timestamp) => CarbonImmutable::createFromTimestamp(
                 $timestamp,
-                (string) (config('statamic.system.display_timezone') ?: config('app.timezone', 'UTC')),
+                DisplayTime::zone(),
             )->format('d.m.Y H:i'),
             'downloadUrl' => fn (string $name) => cp_route('utilities.invoice-exports.download', ['file' => $name]),
             'euro' => fn (int $cent) => Money::format($cent, (string) (array_key_first($report->currencies) ?? 'EUR')),

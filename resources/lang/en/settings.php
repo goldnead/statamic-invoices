@@ -92,6 +92,10 @@ return [
             'label' => 'Small-amount threshold (cents)',
             'description' => 'Below this gross amount § 33 UStDV allows an invoice without the recipient\'s name and address. Above it § 14 UStG wants both, and without them no document is written.',
         ],
+        'display_timezone' => [
+            'label' => 'Display timezone',
+            'description' => 'The zone the invoice date and the service date or period are stated in, such as Europe/Berlin. Empty uses the payments display timezone, then Statamic\'s, then the application\'s. The dates are frozen when the invoice is written; a later change only affects new invoices. Please do not change the application timezone, or every stored time shifts.',
+        ],
         'delivery_enabled' => [
             'label' => 'Send to the buyer',
             'description' => 'Off means the host sends them itself; the InvoiceIssued event stays.',

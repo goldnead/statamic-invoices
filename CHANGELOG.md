@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.4.0 — 2026-09-25
+
+Findings from the ChoirLive end-to-end check.
+
+### Upgrading
+
+- No migration, no new permission. New config key `display_timezone` (`INVOICES_DISPLAY_TIMEZONE`),
+  also on the settings screen. Null falls back to `statamic-payments.display_timezone`, then
+  `statamic.system.display_timezone`, then `app.timezone`. **Never change `app.timezone` to fix a
+  date on a document**: stored timestamps carry no zone and would all shift.
+- Invoices issued before this version render exactly as before (no frozen dates in `meta`).
+- `meta` of a new invoice is no longer `null`: it always carries `issued_on`.
+
+### Added
+
+- **Leistungszeitraum (§ 14 Abs. 4 Nr. 6 UStG).** An invoice for a recurring product states the
+  service period instead of one service date: from the day paid to the day before the next charge,
+  from the payment's subscription (a cycle) or the catalogue `interval` (the first payment). Months
+  and years without overflow. Frozen as `meta.service_period`. A credit note carries the period or
+  service date of the invoice it reverses.
+
+### Fixed
+
+- **Dates in the shop's calendar.** Invoice date and service date were the UTC day: a purchase at
+  00:30 in Berlin was dated the evening before. They are computed in the display zone and frozen as
+  `meta.issued_on` when the invoice is written, so a later zone change moves no issued document.
+  The pending VAT checks screen and the archive list use the same zone.
+- The doubled rhythm in a subscription line ("Chortarif (jährlich) — jährlich") came from the line
+  name statamic-payments writes; fixed there in 1.28.0.
+
 ## 2.3.0 — 2026-09-24
 
 ### Upgrading

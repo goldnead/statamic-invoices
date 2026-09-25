@@ -157,6 +157,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Display timezone
+    |--------------------------------------------------------------------------
+    |
+    | The zone the invoice date and the service date or period are stated in.
+    | Null falls back to `statamic-payments.display_timezone`, then Statamic's
+    | `system.display_timezone`, then `app.timezone`. The dates are frozen onto
+    | the invoice when it is written. The database keeps UTC; never change
+    | `app.timezone` to fix a displayed date, every stored timestamp would shift.
+    |
+    */
+
+    'display_timezone' => env('INVOICES_DISPLAY_TIMEZONE'),
+
+    /*
+    |--------------------------------------------------------------------------
     | VAT
     |--------------------------------------------------------------------------
     |

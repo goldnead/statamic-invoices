@@ -92,6 +92,10 @@ return [
             'label' => 'Grenze Kleinbetragsrechnung (Cent)',
             'description' => 'Bis zu diesem Bruttobetrag erlaubt § 33 UStDV eine Rechnung ohne Name und Anschrift des Empfaengers. Darueber verlangt § 14 UStG beides, und ohne diese Angaben wird kein Dokument geschrieben.',
         ],
+        'display_timezone' => [
+            'label' => 'Anzeige-Zeitzone',
+            'description' => 'In welcher Zone Rechnungsdatum und Leistungsdatum oder -zeitraum stehen, etwa Europe/Berlin. Leer nimmt die Anzeige-Zeitzone von Payments, dann die von Statamic, dann die der Anwendung. Die Daten werden beim Schreiben der Rechnung festgehalten; eine spätere Änderung betrifft nur neue Rechnungen. Die Zeitzone der Anwendung bitte nicht ändern, sonst verschieben sich alle gespeicherten Zeiten.',
+        ],
         'delivery_enabled' => [
             'label' => 'An den Kaeufer senden',
             'description' => 'Aus heisst: der Host versendet selbst, das Ereignis InvoiceIssued bleibt.',

@@ -163,6 +163,7 @@ class Settings implements ProvidesSettings
                     // dass es keine Kleinbetragsrechnung gibt, und das ist eine
                     // gültige Antwort.
                     static::field('small_amount_cent', 'integer', ['min' => 0]),
+                    static::field('display_timezone', 'string'),
                     static::field('delivery.enabled', 'boolean'),
                     static::field('delivery.subject', 'string'),
                     static::field('delivery.filename', 'string'),

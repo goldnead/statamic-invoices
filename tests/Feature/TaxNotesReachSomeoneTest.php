@@ -156,7 +156,9 @@ class TaxNotesReachSomeoneTest extends TestCase
 
         $rechnung = app(InvoiceWriter::class)->forPayment($this->zahlungAusOesterreich());
 
-        $this->assertNull($rechnung->meta);
+        // Keine Hinweise. `meta` selbst traegt seit 2.4.0 immer das
+        // festgehaltene Rechnungsdatum (`issued_on`).
+        $this->assertArrayNotHasKey('tax_notes', $rechnung->meta ?? []);
         Log::shouldNotHaveReceived('warning');
     }
 

@@ -164,16 +164,34 @@
      Schmuck. --}}
 <table class="kennzahlen">
     <tr>
+        {{-- Die Tage aus `meta`, beim Schreiben im Kalender des Ladens
+             festgehalten. Aeltere Rechnungen haben sie nicht und bleiben
+             Byte fuer Byte, wie sie waren. --}}
+        @php
+            $tag = fn (?string $ymd) => $ymd ? \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $ymd)->format('d.m.Y') : null;
+            $meta = (array) ($invoice->meta ?? []);
+            $rechnungsdatum = $tag($meta['issued_on'] ?? null) ?? $invoice->issued_at->format('d.m.Y');
+            $zeitraum = is_array($meta['service_period'] ?? null) ? $meta['service_period'] : null;
+        @endphp
         <td>
             <span class="marke-label">Rechnungsdatum</span>
-            {{ $invoice->issued_at->format('d.m.Y') }}
+            {{ $rechnungsdatum }}
         </td>
-        {{-- Pflichtangabe: der Zeitpunkt der Leistung. Bei einem Sofortkauf ist er
-             das Rechnungsdatum, und das gehoert hingeschrieben statt vorausgesetzt. --}}
-        <td>
-            <span class="marke-label">Leistungsdatum</span>
-            {{ $invoice->issued_at->format('d.m.Y') }}
-        </td>
+        {{-- Pflichtangabe: der Zeitpunkt oder Zeitraum der Leistung (§ 14 Abs. 4
+             Nr. 6 UStG). Bei einem Abo der Zeitraum aus seinem Takt, bei einem
+             Sofortkauf das Rechnungsdatum, und das gehoert hingeschrieben statt
+             vorausgesetzt. --}}
+        @if($zeitraum)
+            <td>
+                <span class="marke-label">Leistungszeitraum</span>
+                {{ $tag($zeitraum['from'] ?? null) }} bis {{ $tag($zeitraum['to'] ?? null) }}
+            </td>
+        @else
+            <td>
+                <span class="marke-label">Leistungsdatum</span>
+                {{ $tag($meta['service_on'] ?? null) ?? $rechnungsdatum }}
+            </td>
+        @endif
         @if($invoice->buyer_vat_id)
             <td>
                 <span class="marke-label">USt-IdNr. des Empfängers</span>

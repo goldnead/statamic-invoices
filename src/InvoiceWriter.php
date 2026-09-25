@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices;
 
+use Carbon\CarbonInterface;
 use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
 use Goldnead\Invoices\Exceptions\DetailsMissing;
@@ -11,6 +12,7 @@ use Goldnead\Invoices\Exceptions\ProductIncomplete;
 use Goldnead\Invoices\Exceptions\RateUndetermined;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Models\InvoiceItem;
+use Goldnead\Invoices\Support\DisplayTime;
 use Goldnead\Invoices\Support\NumberSeries;
 use Goldnead\Invoices\Support\TaxResult;
 use Goldnead\Invoices\Support\TaxRules;
@@ -146,6 +148,11 @@ class InvoiceWriter
                 'meta' => ($meta = array_filter([
                     ...($hinweise === [] ? [] : ['tax_notes' => $hinweise]),
                     ...$this->buyerContact($payment),
+                    // Die Tage, die auf dem Dokument stehen, im Kalender des
+                    // Ladens und beim Schreiben festgehalten: eine spaeter
+                    // umgestellte Zone verschiebt kein ausgestelltes Datum.
+                    'issued_on' => DisplayTime::day($issuedAt),
+                    'service_period' => $this->servicePeriod($payment, $issuedAt),
                 ])) === [] ? null : $meta,
             ]);
 
@@ -296,6 +303,10 @@ class InvoiceWriter
                 'meta' => array_filter([
                     'reverses_number' => $original->number,
                     'tax_notes' => $original->meta['tax_notes'] ?? null,
+                    'issued_on' => DisplayTime::day($issuedAt),
+                    // Die Leistung ist die der Rechnung, nicht der Tag des Stornos.
+                    'service_period' => $original->meta['service_period'] ?? null,
+                    'service_on' => isset($original->meta['service_period']) ? null : ($original->meta['issued_on'] ?? null),
                 ], fn ($wert) => $wert !== null),
             ]);
 
@@ -767,6 +778,47 @@ class InvoiceWriter
      *
      * @return array<string, mixed>
      */
+    /**
+     * Der Leistungszeitraum eines Abos, § 14 Abs. 4 Nr. 6 UStG.
+     *
+     * Ein Jahrestarif ist eine Leistung über ein Jahr, kein Tag. Der Takt kommt
+     * aus dem Abo der Zahlung (ein Zyklus), sonst aus dem Katalog (die erste
+     * Zahlung, deren Abo erst danach entsteht). Vom Tag der Zahlung bis zum
+     * Tag vor der nächsten, im Kalender des Ladens. Kein Takt: null, und die
+     * Rechnung nennt wie bisher ein Leistungsdatum.
+     *
+     * @return array{from: string, to: string}|null
+     */
+    protected function servicePeriod(Payment $payment, CarbonInterface $issuedAt): ?array
+    {
+        $interval = null;
+
+        try {
+            if ($payment->getAttribute('subscription_id') !== null) {
+                $interval = $payment->subscription?->interval;
+            }
+        } catch (\Throwable) {
+            $interval = null;
+        }
+
+        $interval = is_string($interval) && trim($interval) !== ''
+            ? trim($interval)
+            : (is_string($this->product($payment->product)['interval'] ?? null) ? trim($this->product($payment->product)['interval']) : '');
+
+        if ($interval === '') {
+            return null;
+        }
+
+        $from = DisplayTime::of($issuedAt)->startOfDay();
+        $next = DisplayTime::addInterval($from, $interval);
+
+        if ($next === null || $next->lessThanOrEqualTo($from)) {
+            return null;
+        }
+
+        return ['from' => $from->toDateString(), 'to' => $next->copy()->subDay()->toDateString()];
+    }
+
     protected function product(?string $handle): array
     {
         if ($handle === null || $handle === '') {
