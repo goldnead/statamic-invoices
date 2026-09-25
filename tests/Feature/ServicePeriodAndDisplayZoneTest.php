@@ -90,6 +90,13 @@ class ServicePeriodAndDisplayZoneTest extends TestCase
     #[Test]
     public function a_cycle_takes_the_rhythm_of_its_subscription(): void
     {
+        // The oldest payments this addon accepts (^1.14) cannot link a
+        // payment to its subscription yet; there a cycle falls back to the
+        // catalogue's rhythm, which the first test covers.
+        if (! method_exists(Payment::class, 'subscription') || ! class_exists(Subscription::class)) {
+            $this->markTestSkipped('this statamic-payments has no payment→subscription link');
+        }
+
         $subscription = Subscription::create([
             'provider' => 'fake',
             'provider_id' => 'sub_1',
