@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.5.0 — 2026-09-25
+
+### Added
+
+- The invoice mail is a template in `statamic-email-templates` where that addon is installed:
+  registered as `invoices-invoice` with occasion, event (`InvoiceIssued`), placeholders and the
+  shipped wording. An entry under the slug writes subject and text; the PDF stays attached. Finding
+  from ChoirLive: every other mail of the suite could be edited in the CP, this one could not.
+- The payment's communication log records the subject that actually went out.
+
+### Upgrading
+
+- New config key `delivery.template` (`INVOICES_MAIL_TEMPLATE`, default `invoices-invoice`). No
+  migration. Without an entry, or without email-templates, the built-in mail is sent exactly as before.
+
 ## 2.4.0 — 2026-09-25
 
 Findings from the ChoirLive end-to-end check.

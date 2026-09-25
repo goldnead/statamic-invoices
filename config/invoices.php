@@ -121,6 +121,14 @@ return [
         'enabled' => env('INVOICES_DELIVER', true),
         'subject' => 'Ihre Rechnung :number',
         'filename' => 'Rechnung-:number.pdf',
+
+        // The slug of the mail in goldnead/statamic-email-templates. Where that
+        // addon is installed and has an entry under this slug, the entry writes
+        // subject and text (placeholders: buyer.name, buyer.email,
+        // invoice.number, invoice.date, amount, seller.name, site_name) and the
+        // PDF is still attached. Without an entry, or without the addon, the
+        // built-in mail above is sent unchanged. Null or '' turns it off.
+        'template' => env('INVOICES_MAIL_TEMPLATE', 'invoices-invoice'),
     ],
 
     /*

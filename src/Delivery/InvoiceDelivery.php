@@ -63,12 +63,9 @@ class InvoiceDelivery
             return $this->refused($invoice, $brandId);
         }
 
-        $sent = $this->mailer->send(
-            $brandId,
-            $to,
-            $invoice->buyer_name,
-            new InvoiceMail($invoice, $this->pdf->render($invoice), $this->filename($invoice)),
-        );
+        $mail = new InvoiceMail($invoice, $this->pdf->render($invoice), $this->filename($invoice));
+
+        $sent = $this->mailer->send($brandId, $to, $invoice->buyer_name, $mail);
 
         if (! $sent) {
             // Checked twice on purpose: a queue worker lives for days, and the
@@ -78,7 +75,7 @@ class InvoiceDelivery
 
         InvoiceDelivered::dispatch($invoice, $to);
 
-        $this->logOnPayment($invoice, $to);
+        $this->logOnPayment($invoice, $to, $mail->subject);
 
         return true;
     }
@@ -93,7 +90,7 @@ class InvoiceDelivery
      * error. The facade itself swallows and logs a failed write; it never
      * throws into a mail path.
      */
-    protected function logOnPayment(Invoice $invoice, string $to): void
+    protected function logOnPayment(Invoice $invoice, string $to, ?string $sentSubject = null): void
     {
         $facade = '\Goldnead\StatamicPayments\Facades\PaymentLog';
 
@@ -101,7 +98,11 @@ class InvoiceDelivery
             return;
         }
 
-        $subject = str_replace(':number', (string) $invoice->number, (string) config('invoices.delivery.subject', 'Ihre Rechnung :number'));
+        // The subject that actually went out: an email-templates entry writes
+        // its own, and the log should not claim the configured one.
+        $subject = is_string($sentSubject) && $sentSubject !== ''
+            ? $sentSubject
+            : str_replace(':number', (string) $invoice->number, (string) config('invoices.delivery.subject', 'Ihre Rechnung :number'));
 
         $facade::mail((int) $invoice->payment_id, 'invoice', $to, $subject, 'sent', [
             'invoice' => $invoice->number,

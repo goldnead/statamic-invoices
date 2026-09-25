@@ -10,6 +10,7 @@ use Goldnead\Invoices\Cp\Exports;
 use Goldnead\Invoices\Cp\OutstandingVatChecks;
 use Goldnead\Invoices\Http\Controllers\Cp\ExportController;
 use Goldnead\Invoices\Http\Middleware\RequireBusinessBuyer;
+use Goldnead\Invoices\Integrations\EmailTemplates\InvoiceMailTemplate;
 use Goldnead\Invoices\Integrations\Insights\Gross;
 use Goldnead\Invoices\Integrations\Insights\Issued;
 use Goldnead\Invoices\Integrations\Insights\Net;
@@ -184,6 +185,11 @@ class ServiceProvider extends AddonServiceProvider
         // app->booted() callback, where a nested booted() fires at once, still
         // before a sibling's bootAddon(). Queued here, it runs after all of them.
         $this->registerWebhookManagerBridge();
+
+        // From boot(): email-templates binds its registry in register(), so it
+        // is there for every provider's boot. Without the sibling this is a
+        // no-op, and the invoice mail is the built-in one.
+        $this->app->make(InvoiceMailTemplate::class)->register();
     }
 
     /**

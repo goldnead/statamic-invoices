@@ -3,6 +3,7 @@
 namespace Goldnead\Invoices\Mail;
 
 use Goldnead\BrandContext\Sending\BrandMailer;
+use Goldnead\Invoices\Integrations\EmailTemplates\InvoiceMailTemplate;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Support\MarkenBild;
 use Goldnead\Invoices\Support\Money;
@@ -38,6 +39,17 @@ class InvoiceMail extends Mailable
         // the transport belongs to.
         if (empty($this->from)) {
             $this->from(...$this->fallbackSender());
+        }
+
+        // Eine Vorlage aus statamic-email-templates, wenn es für diese Mail
+        // einen Eintrag gibt. Sonst die eingebaute Ansicht, unverändert.
+        $vorlage = app(InvoiceMailTemplate::class)->render($this->invoice);
+
+        if ($vorlage !== null) {
+            return $this
+                ->subject($vorlage['subject'] !== '' ? $vorlage['subject'] : $this->fill((string) config('invoices.delivery.subject', 'Ihre Rechnung :number')))
+                ->html($vorlage['html'])
+                ->attachData($this->pdf, $this->filename, ['mime' => 'application/pdf']);
         }
 
         $marke = MarkenBild::fuer($this->invoice->brand_id);

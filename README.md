@@ -216,6 +216,20 @@ The mail leaves through brand-context's `BrandMailer`, which decides **who it co
 `php artisan vendor:publish --tag=invoices-views` publishes the covering letter alongside the
 document itself.
 
+### Writing the mail in the Control Panel (optional)
+
+With [goldnead/statamic-email-templates](https://github.com/goldnead/statamic-email-templates)
+installed, the invoice mail registers there as `invoices-invoice` (config `delivery.template`, env
+`INVOICES_MAIL_TEMPLATE`), listed under "Invoices" with its occasion (`InvoiceIssued`) and
+placeholders: `{{ buyer.name }}` (the address when there is no name), `{{ buyer.email }}`,
+`{{ invoice.number }}`, `{{ invoice.date }}`, `{{ amount }}`, `{{ seller.name }}`, `{{ site_name }}`.
+An import (`php please email-templates:import`) writes the shipped wording as an entry.
+
+Once an entry with that slug exists, it writes subject and text, in the layout email-templates wraps
+it in; the PDF is attached as before and the sender rules above still apply. **Without an entry, or
+without the addon, the built-in mail goes out unchanged.** `delivery.template` set to null or `''`
+turns the template off.
+
 ## Selling to businesses
 
 A seller who only sells to businesses has three cases, not twenty-seven. A supply to a business
