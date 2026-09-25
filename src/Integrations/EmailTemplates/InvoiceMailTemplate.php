@@ -66,11 +66,9 @@ class InvoiceMailTemplate
             return false;
         }
 
+        // Bound only by an email-templates with the registry, and that one has
+        // `register()`; no version checks beyond the binding itself.
         $registry = app(self::REGISTRY);
-
-        if (! is_object($registry) || ! method_exists($registry, 'register')) {
-            return false;
-        }
 
         $placeholders = [];
 
