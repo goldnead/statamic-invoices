@@ -5,12 +5,14 @@ namespace Goldnead\Invoices\Tests\Feature;
 use Goldnead\EmailTemplates\EmailTemplatesServiceProvider;
 use Goldnead\EmailTemplates\Services\EmailTemplateCollectionManager;
 use Goldnead\EmailTemplates\Support\EmailTemplateData;
-use Goldnead\Invoices\Events\InvoiceIssued;
+use Goldnead\Invoices\Integrations\EmailTemplates\InvoiceMailTemplate;
+use Goldnead\Invoices\Integrations\EmailTemplates\TemplateSource;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\ServiceProvider;
 use Goldnead\Invoices\Tests\TestCase;
 use Goldnead\StatamicPayments\Events\PaymentPaid;
 use Goldnead\StatamicPayments\Models\Payment;
+use Illuminate\Container\Container;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\Test;
@@ -18,18 +20,15 @@ use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Part\DataPart;
 
 /**
- * Die Rechnungsmail als Vorlage in statamic-email-templates.
+ * Was adriangoldner.com an seiner eigenen Rechnungsmail hatte und dem Addon
+ * fehlte (Vergleich 04.10.2026): der Produktname, ein Reply-To und eine
+ * Vorlage, in der die Seite ihre eigene Ansprache pflegt.
  *
- * Befund aus ChoirLive (25.09.2026): jede andere Mail der Suite lässt sich im
- * CP umschreiben, die Rechnungsmail nicht. Sie meldet sich jetzt in der
- * Vorlagen-Registry an (`invoices-invoice`), und ein Eintrag unter diesem Slug
- * schreibt Betreff und Text. Die PDF hängt in jedem Fall an.
- *
- * Ohne Eintrag bleibt die Mail, wie sie war: die eingebaute Ansicht mit Logo
- * und Betragskasten. Eine Vorlage, die noch niemand angelegt hat, darf die
- * Mail, die ein Käufer zehn Jahre aufhebt, nicht verändern.
+ * Die Mail geht hier über die echte Kette raus, von `PaymentPaid` bis zum
+ * `array`-Transport, damit Betreff, Text, Kopfzeilen und Anhang so geprüft
+ * werden, wie ein Postfach sie bekommt.
  */
-class TheInvoiceMailIsATemplateTest extends TestCase
+class TheInvoiceMailSaysWhatWasBoughtTest extends TestCase
 {
     protected string $content;
 
@@ -59,10 +58,7 @@ class TheInvoiceMailIsATemplateTest extends TestCase
     {
         parent::defineEnvironment($app);
 
-        // Einträge landen in einem Verzeichnis dieses Prozesses, nicht in den
-        // Fixtures von Testbench: sonst beginnt der nächste Lauf mit der
-        // Vorlage, die dieser angelegt hat.
-        $this->content = sys_get_temp_dir().'/invoices-et-'.getmypid().'-'.bin2hex(random_bytes(3));
+        $this->content = sys_get_temp_dir().'/invoices-bought-'.getmypid().'-'.bin2hex(random_bytes(3));
         $app['config']->set('statamic.stache.stores.collections.directory', $this->content.'/collections');
         $app['config']->set('statamic.stache.stores.entries.directory', $this->content.'/collections');
 
@@ -86,33 +82,11 @@ class TheInvoiceMailIsATemplateTest extends TestCase
     }
 
     #[Test]
-    public function the_mail_is_announced_to_the_registry_with_occasion_and_placeholders(): void
-    {
-        $registry = app('email-templates.registry');
-
-        $this->assertTrue($registry->has('invoices-invoice'));
-
-        $definition = $registry->find('invoices-invoice');
-        $this->assertSame('Invoices', $definition->addon());
-        $this->assertSame(InvoiceIssued::class, $definition->event);
-        $this->assertNotSame('', $definition->trigger());
-
-        $this->assertSame(
-            ['buyer.name', 'buyer.email', 'invoice.number', 'invoice.date', 'amount', 'seller.name', 'site_name', 'product', 'portal_url'],
-            array_keys($definition->placeholders()),
-        );
-
-        $defaults = $definition->defaults();
-        $this->assertStringContainsString('{{ invoice.number }}', $defaults['subject']);
-        $this->assertStringContainsString('{{ amount }}', $defaults['body']);
-    }
-
-    #[Test]
-    public function an_entry_writes_subject_and_text_and_the_pdf_still_travels(): void
+    public function a_template_entry_names_the_product_in_the_sites_own_voice(): void
     {
         $this->vorlage([
             'subject' => 'Deine Rechnung {{ invoice.number }}',
-            'body' => '<p>Hallo {{ buyer.name }},</p><p>hier ist deine Rechnung über {{ amount }}.</p><p>{{ seller.name }}</p>',
+            'body' => '<p>Hallo {{ buyer.name }},</p><p>hier ist deine Rechnung {{ invoice.number }} zu <strong>{{ product }}</strong>.</p>',
         ]);
 
         PaymentPaid::dispatch($this->zahlung());
@@ -122,17 +96,48 @@ class TheInvoiceMailIsATemplateTest extends TestCase
 
         $this->assertSame('Deine Rechnung '.$rechnung->number, $mail->getSubject());
 
-        $html = (string) $mail->getHtmlBody();
-        $this->assertStringContainsString('Hallo Bärbel Öztürk-Weiß,', html_entity_decode($html));
-        $this->assertStringContainsString('119,00', $html);
-        $this->assertStringContainsString('Nordlicht Studio', $html);
-        $this->assertStringNotContainsString('im Anhang finden Sie', $html);
-
+        $html = html_entity_decode((string) $mail->getHtmlBody());
+        $this->assertStringContainsString('Hallo Bärbel Öztürk-Weiß,', $html);
+        $this->assertStringContainsString('zu <strong>Chorleitungskurs</strong>', $html);
         $this->assertSame(['Rechnung-'.$rechnung->number.'.pdf'], $this->pdfs($mail));
     }
 
     #[Test]
-    public function without_an_entry_the_built_in_mail_goes_out_unchanged(): void
+    public function the_product_placeholder_is_announced_to_the_registry(): void
+    {
+        $definition = app('email-templates.registry')->find('invoices-invoice');
+
+        $this->assertArrayHasKey('product', $definition->placeholders());
+        $this->assertStringContainsString('{{ product }}', $definition->defaults()['body']);
+    }
+
+    #[Test]
+    public function an_email_templates_without_a_registry_gets_the_mail_as_an_import_source(): void
+    {
+        // email-templates before 2.8: the interface is there, the registry is not.
+        // The registry is an alias of its class; the container has no public way
+        // to drop one, so it is taken out by hand.
+        $aliases = new \ReflectionProperty(Container::class, 'aliases');
+        $alle = $aliases->getValue($this->app);
+        unset($alle['email-templates.registry']);
+        $aliases->setValue($this->app, $alle);
+        $this->assertFalse($this->app->bound('email-templates.registry'));
+
+        $this->assertTrue(app(InvoiceMailTemplate::class)->register());
+
+        $quellen = array_filter(
+            [...$this->app->tagged('email-templates.sources')],
+            fn ($quelle) => $quelle instanceof TemplateSource,
+        );
+        $this->assertCount(1, $quellen);
+
+        $vorlagen = array_values($quellen)[0]->all();
+        $this->assertSame('invoices-invoice', $vorlagen[0]->slug);
+        $this->assertStringContainsString('{{ product }}', $vorlagen[0]->body);
+    }
+
+    #[Test]
+    public function without_an_entry_the_built_in_mail_keeps_its_text_and_names_the_product(): void
     {
         PaymentPaid::dispatch($this->zahlung());
 
@@ -140,20 +145,44 @@ class TheInvoiceMailIsATemplateTest extends TestCase
         $mail = $this->einzigeMail();
 
         $this->assertSame('Ihre Rechnung '.$rechnung->number, $mail->getSubject());
-        $this->assertStringContainsString('im Anhang finden Sie Ihre Rechnung als PDF.', (string) $mail->getHtmlBody());
+
+        $html = (string) $mail->getHtmlBody();
+        $this->assertStringContainsString('im Anhang finden Sie Ihre Rechnung als PDF.', $html);
+        $this->assertStringContainsString('Chorleitungskurs', $html);
         $this->assertSame(['Rechnung-'.$rechnung->number.'.pdf'], $this->pdfs($mail));
     }
 
     #[Test]
-    public function an_empty_slug_turns_the_template_off(): void
+    public function a_configured_reply_to_is_on_the_mail_with_or_without_a_template(): void
     {
-        config(['invoices.delivery.template' => null]);
-
-        $this->vorlage(['subject' => 'Deine Rechnung {{ invoice.number }}', 'body' => '<p>Hallo</p>']);
+        config([
+            'invoices.delivery.reply_to' => 'fragen@nordlicht.test',
+            'invoices.delivery.reply_to_name' => 'Nordlicht Fragen',
+        ]);
 
         PaymentPaid::dispatch($this->zahlung());
 
-        $this->assertStringStartsWith('Ihre Rechnung ', (string) $this->einzigeMail()->getSubject());
+        $antwort = $this->einzigeMail()->getReplyTo();
+        $this->assertCount(1, $antwort);
+        $this->assertSame('fragen@nordlicht.test', $antwort[0]->getAddress());
+        $this->assertSame('Nordlicht Fragen', $antwort[0]->getName());
+
+        Mail::mailer()->getSymfonyTransport()->flush();
+
+        $this->vorlage(['subject' => 'Deine Rechnung {{ invoice.number }}', 'body' => '<p>Hallo</p>']);
+        PaymentPaid::dispatch($this->zahlung());
+
+        $this->assertSame('fragen@nordlicht.test', $this->einzigeMail()->getReplyTo()[0]->getAddress());
+    }
+
+    #[Test]
+    public function an_empty_reply_to_sets_none(): void
+    {
+        config(['invoices.delivery.reply_to' => '']);
+
+        PaymentPaid::dispatch($this->zahlung());
+
+        $this->assertSame([], $this->einzigeMail()->getReplyTo());
     }
 
     /**
@@ -188,7 +217,7 @@ class TheInvoiceMailIsATemplateTest extends TestCase
             ->map(fn ($sent) => $sent->getOriginalMessage())
             ->all();
 
-        $this->assertCount(1, $post, 'die Rechnung hat den Käufer nicht erreicht');
+        $this->assertCount(1, $post, 'die Rechnung hat den Käufer nicht genau einmal erreicht');
 
         return $post[0];
     }

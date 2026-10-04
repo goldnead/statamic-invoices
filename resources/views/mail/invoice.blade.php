@@ -61,6 +61,16 @@
          Beschriftung — dieselbe Geste wie auf der Rechnung und auf der
          Verkaufsseite, und die einzige schmückende in dieser Mail. --}}
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; margin:0 0 26px;">
+        {{-- Was gekauft wurde, wortgleich wie auf der Rechnung. Ohne Positionen
+             (eine alte Rechnung, ein Sonderfall) fällt die Zeile weg. --}}
+        @if(($produkt ?? '') !== '')
+        <tr>
+            <td colspan="2" style="padding:14px 0 0; border-top:1px solid #dfe3ea;">
+                <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:{{ $marke['muted'] }}; margin-bottom:4px;">Leistung</div>
+                <div style="font-size:15px; font-weight:600;">{{ $produkt }}</div>
+            </td>
+        </tr>
+        @endif
         <tr>
             <td style="padding:14px 0; border-top:1px solid #dfe3ea; border-bottom:1px solid #dfe3ea;">
                 <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:{{ $marke['muted'] }}; margin-bottom:4px;">Rechnungsnummer</div>

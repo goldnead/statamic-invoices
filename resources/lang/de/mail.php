@@ -16,7 +16,7 @@ return [
     'trigger' => 'Eine Rechnung wurde geschrieben und geht mit der PDF an den Käufer',
     'subject' => 'Ihre Rechnung {{ invoice.number }}',
     'body' => '<p>Guten Tag {{ buyer.name }},</p>'
-        .'<p>im Anhang finden Sie Ihre Rechnung {{ invoice.number }} vom {{ invoice.date }} über {{ amount }} als PDF.</p>'
+        .'<p>im Anhang finden Sie Ihre Rechnung {{ invoice.number }} vom {{ invoice.date }} über {{ amount }} zu {{ product }} als PDF.</p>'
         .'<p>Bitte bewahren Sie die Rechnung auf. Sie ist zugleich Ihr Beleg für die Zahlung.</p>'
         .'<p>Freundliche Grüße<br>{{ seller.name }}</p>',
 
@@ -28,5 +28,7 @@ return [
         'amount' => 'Bruttobetrag mit Währung',
         'seller_name' => 'Name des Verkäufers, wie er auf der Rechnung steht',
         'site_name' => 'Name der Website',
+        'product' => 'Was gekauft wurde: die Positionen der Rechnung, mit Komma getrennt',
+        'portal_url' => 'Anmeldeseite des Kundenkontos, in dem die Rechnung zum Herunterladen liegt (leer ohne Kundenkonto)',
     ],
 ];

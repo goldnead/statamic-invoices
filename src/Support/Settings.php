@@ -167,6 +167,9 @@ class Settings implements ProvidesSettings
                     static::field('delivery.enabled', 'boolean'),
                     static::field('delivery.subject', 'string'),
                     static::field('delivery.filename', 'string'),
+                    static::field('delivery.reply_to', 'string'),
+                    static::field('delivery.reply_to_name', 'string'),
+                    static::field('delivery.zero_tax_guard.enabled', 'boolean'),
                 ],
             ],
             [

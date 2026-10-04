@@ -5,9 +5,12 @@ namespace Goldnead\Invoices\Delivery;
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Events\InvoiceDelivered;
 use Goldnead\Invoices\Mail\InvoiceMail;
+use Goldnead\Invoices\Models\DeliveryRecord;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Sending\BrandMailer;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Puts an existing invoice in the buyer's mailbox.
@@ -27,6 +30,7 @@ class InvoiceDelivery
     public function __construct(
         protected PdfRenderer $pdf,
         protected BrandMailer $mailer,
+        protected ZeroTaxGuard $guard,
     ) {}
 
     /**
@@ -34,6 +38,13 @@ class InvoiceDelivery
      */
     public function send(Invoice $invoice): bool
     {
+        // Once per invoice, whatever calls this how often. A row here means the
+        // invoice was sent, is being sent, or was held back on purpose; each of
+        // the three is an answer a second attempt must not overrule.
+        if (DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->exists()) {
+            return false;
+        }
+
         $to = trim((string) $invoice->buyer_email);
 
         if ($to === '') {
@@ -63,21 +74,96 @@ class InvoiceDelivery
             return $this->refused($invoice, $brandId);
         }
 
-        $mail = new InvoiceMail($invoice, $this->pdf->render($invoice), $this->filename($invoice));
+        // After the address and the sender, before the document: a held invoice
+        // is a decision about this one document, and it is recorded so that no
+        // later attempt sends it after all.
+        $deviations = $this->guard->deviations($invoice);
 
-        $sent = $this->mailer->send($brandId, $to, $invoice->buyer_name, $mail);
+        if ($deviations !== []) {
+            return $this->hold($invoice, $to, $deviations);
+        }
+
+        // The claim. The unique index on `invoice_id` lets exactly one attempt
+        // through; a concurrent second one lands in the catch and stops.
+        try {
+            $claim = DeliveryRecord::create([
+                'invoice_id' => $invoice->getKey(),
+                'status' => DeliveryRecord::STATUS_SENDING,
+                'recipient' => $to,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            return false;
+        }
+
+        try {
+            $mail = new InvoiceMail($invoice, $this->pdf->render($invoice), $this->filename($invoice));
+
+            $sent = $this->mailer->send($brandId, $to, $invoice->buyer_name, $mail);
+        } catch (Throwable $e) {
+            // Nothing went out, so the way stays open for the next attempt.
+            $claim->delete();
+
+            throw $e;
+        }
 
         if (! $sent) {
+            $claim->delete();
+
             // Checked twice on purpose: a queue worker lives for days, and the
             // brand row or the mail config can change between the two calls.
             return $this->refused($invoice, $brandId);
         }
+
+        $claim->update([
+            'status' => DeliveryRecord::STATUS_SENT,
+            'subject' => mb_substr((string) $mail->subject, 0, 255) ?: null,
+        ]);
 
         InvoiceDelivered::dispatch($invoice, $to);
 
         $this->logOnPayment($invoice, $to, $mail->subject);
 
         return true;
+    }
+
+    /**
+     * Not sent, on purpose, and said where somebody will see it.
+     *
+     * The record stays: a second attempt would find the same document. The
+     * way out is a person: check the tax question, cancel the invoice with a
+     * credit note, fix the cause, write it again. Releasing this one instead
+     * (deleting its row in `invoice_deliveries`) sends it as it is.
+     *
+     * @param  list<array<string, mixed>>  $deviations
+     */
+    protected function hold(Invoice $invoice, string $to, array $deviations): bool
+    {
+        try {
+            DeliveryRecord::create([
+                'invoice_id' => $invoice->getKey(),
+                'status' => DeliveryRecord::STATUS_HELD,
+                'recipient' => $to,
+                'reason' => ZeroTaxGuard::REASON,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            return false;
+        }
+
+        Log::error(ZeroTaxGuard::LOG_HELD, [
+            'invoice_id' => $invoice->getKey(),
+            'number' => $invoice->number,
+            'payment_id' => $invoice->payment_id,
+            'buyer_country' => $invoice->buyer_country,
+            'tax_reason' => $invoice->tax_reason,
+            'lines' => $deviations,
+            'runbook' => 'Clarify the tax question for this country and product. Then cancel the invoice '
+                .'(Invoices::creditNoteFor), fix the configuration, write it again and send it. To send '
+                .'it unchanged instead, delete its row in invoice_deliveries and call InvoiceDelivery::send().',
+        ]);
+
+        $this->logOnPayment($invoice, $to, null, 'failed', ['held' => ZeroTaxGuard::REASON]);
+
+        return false;
     }
 
     /**
@@ -90,7 +176,10 @@ class InvoiceDelivery
      * error. The facade itself swallows and logs a failed write; it never
      * throws into a mail path.
      */
-    protected function logOnPayment(Invoice $invoice, string $to, ?string $sentSubject = null): void
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    protected function logOnPayment(Invoice $invoice, string $to, ?string $sentSubject = null, string $status = 'sent', array $meta = []): void
     {
         $facade = '\Goldnead\StatamicPayments\Facades\PaymentLog';
 
@@ -104,9 +193,10 @@ class InvoiceDelivery
             ? $sentSubject
             : str_replace(':number', (string) $invoice->number, (string) config('invoices.delivery.subject', 'Ihre Rechnung :number'));
 
-        $facade::mail((int) $invoice->payment_id, 'invoice', $to, $subject, 'sent', [
+        $facade::mail((int) $invoice->payment_id, 'invoice', $to, $subject, $status, [
             'invoice' => $invoice->number,
             'invoice_id' => $invoice->getKey(),
+            ...$meta,
         ]);
     }
 
