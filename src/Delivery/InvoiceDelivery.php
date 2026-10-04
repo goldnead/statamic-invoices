@@ -10,6 +10,7 @@ use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Sending\BrandMailer;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -59,6 +60,16 @@ class InvoiceDelivery
             return false;
         }
 
+        // A claim that is only minutes old is most likely a send still in
+        // flight, and releasing it would mail a second copy.
+        $grace = max(0, (int) config('invoices.delivery.release_sending_after_minutes', 10));
+
+        if ($record?->status === DeliveryRecord::STATUS_SENDING
+            && $record->updated_at !== null
+            && $record->updated_at->gt(now()->subMinutes($grace))) {
+            throw new RuntimeException("{$invoice->number} is being sent right now (claimed less than {$grace} minutes ago). Wait, then release it if it is still in sending.");
+        }
+
         Log::warning('invoices: '.$invoice->number.' released by hand and sent as it is.', [
             'invoice_id' => $invoice->getKey(),
             'previous_status' => $record?->status,
@@ -68,7 +79,7 @@ class InvoiceDelivery
         $record?->delete();
 
         try {
-            $sent = $this->deliver($invoice, guarded: false);
+            $sent = $this->deliver($invoice, guarded: false, track: false);
         } catch (Throwable $e) {
             $this->restore($invoice, $record);
 
@@ -96,27 +107,41 @@ class InvoiceDelivery
         try {
             DeliveryRecord::create([
                 'invoice_id' => $invoice->getKey(),
-                'status' => DeliveryRecord::STATUS_HELD,
+                'status' => in_array($record->status, [DeliveryRecord::STATUS_FAILED, DeliveryRecord::STATUS_FAILED_FINAL], true)
+                    ? $record->status
+                    : DeliveryRecord::STATUS_HELD,
                 'recipient' => $record->recipient,
                 'reason' => $record->reason,
+                'attempts' => $record->attempts,
+                'last_error' => $record->last_error,
             ]);
         } catch (Throwable) {
             // A concurrent attempt wrote its own row; that one is the answer.
         }
     }
 
-    protected function deliver(Invoice $invoice, bool $guarded): bool
+    /**
+     * @param  bool  $track  a failure keeps its row as `failed` for `invoices:retry`; a release does not (it is a person's decision, and a failure puts the hold back)
+     */
+    protected function deliver(Invoice $invoice, bool $guarded, bool $track = true): bool
     {
         // Once per invoice, whatever calls this how often. A row here means the
-        // invoice was sent, is being sent, or was held back on purpose; each of
-        // the three is an answer a second attempt must not overrule.
-        if (DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->exists()) {
+        // invoice was sent, is being sent, was held back on purpose, or ran out
+        // of attempts; each is an answer a second attempt must not overrule.
+        // The one row that invites another try is `failed`.
+        $previous = DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->first();
+
+        // A `failed` row also waits out its backoff here, so the event firing
+        // again right after a failure does not undercut `invoices:retry`.
+        if ($previous !== null && ! $previous->isDueForRetry()) {
             return false;
         }
 
         $to = trim((string) $invoice->buyer_email);
 
         if ($to === '') {
+            $this->noteFailedAttempt($previous, 'no buyer address');
+
             // A paid order with no address. `statamic-payments` already says so
             // at fulfilment; repeating it here is what tells an operator that
             // this particular invoice is sitting in the database undelivered.
@@ -140,26 +165,45 @@ class InvoiceDelivery
         // thrown away — a refused sender identity is a configuration fault, so
         // it is the case that repeats for every invoice until somebody fixes it.
         if (! $this->mailer->maySend($brandId)) {
+            $this->noteFailedAttempt($previous, 'sender identity refused');
+
             return $this->refused($invoice, $brandId);
         }
 
         // After the address and the sender, before the document: a held invoice
         // is a decision about this one document, and it is recorded so that no
-        // later attempt sends it after all.
-        $deviations = $guarded ? $this->guard->deviations($invoice) : [];
+        // later attempt sends it after all. A row that already failed once got
+        // past this (or was released) the first time; asking again would only
+        // let a changed configuration strand it between failed and held.
+        $deviations = $guarded && $previous === null ? $this->guard->deviations($invoice) : [];
 
         if ($deviations !== []) {
             return $this->hold($invoice, $to, $deviations);
         }
 
         // The claim. The unique index on `invoice_id` lets exactly one attempt
-        // through; a concurrent second one lands in the catch and stops.
+        // through; a concurrent second one lands in the catch and stops. A
+        // `failed` row is claimed by flipping it to `sending` in one statement
+        // that only matches while it is still `failed`: of two runs, one wins.
         try {
-            $claim = DeliveryRecord::create([
-                'invoice_id' => $invoice->getKey(),
-                'status' => DeliveryRecord::STATUS_SENDING,
-                'recipient' => $to,
-            ]);
+            if ($previous !== null) {
+                $won = DeliveryRecord::query()
+                    ->whereKey($previous->getKey())
+                    ->where('status', DeliveryRecord::STATUS_FAILED)
+                    ->update(['status' => DeliveryRecord::STATUS_SENDING, 'recipient' => $to]);
+
+                if ($won === 0) {
+                    return false;
+                }
+
+                $claim = $previous->refresh();
+            } else {
+                $claim = DeliveryRecord::create([
+                    'invoice_id' => $invoice->getKey(),
+                    'status' => DeliveryRecord::STATUS_SENDING,
+                    'recipient' => $to,
+                ]);
+            }
         } catch (UniqueConstraintViolationException) {
             return false;
         }
@@ -169,23 +213,17 @@ class InvoiceDelivery
 
             $sent = $this->mailer->send($brandId, $to, $invoice->buyer_name, $mail);
         } catch (Throwable $e) {
-            // Nothing went out, so the way stays open for the next attempt. If
-            // freeing the claim fails too, the original cause is still the one
-            // that travels up: it is the one somebody has to fix.
-            try {
-                $claim->delete();
-            } catch (Throwable $freigabe) {
-                Log::error('invoices: '.$invoice->number.' could not be sent, and its delivery claim could not be released; it stays in "sending" until somebody runs invoices:release.', [
-                    'invoice_id' => $invoice->getKey(),
-                    'exception' => $freigabe->getMessage(),
-                ]);
-            }
+            // Nothing went out, so the way stays open: the row becomes `failed`
+            // (or `failed_final` after the last attempt) and `invoices:retry`
+            // picks it up. If that fails too, the original cause is still the
+            // one that travels up: it is the one somebody has to fix.
+            $this->failClaim($invoice, $claim, $e->getMessage(), $track);
 
             throw $e;
         }
 
         if (! $sent) {
-            $claim->delete();
+            $this->failClaim($invoice, $claim, 'sender identity refused', $track);
 
             // Checked twice on purpose: a queue worker lives for days, and the
             // brand row or the mail config can change between the two calls.
@@ -202,6 +240,67 @@ class InvoiceDelivery
         $this->logOnPayment($invoice, $to, $mail->subject);
 
         return true;
+    }
+
+    /**
+     * A send that did not go out: the claim becomes `failed`, with the attempt
+     * counted and the cause kept, or `failed_final` when that was the last one
+     * (`delivery.retry.max_attempts`, the first send included).
+     *
+     * Without `$track` (a release) the claim is simply removed, as it was
+     * before there was a retry: the caller puts the hold back.
+     */
+    protected function failClaim(Invoice $invoice, DeliveryRecord $claim, string $cause, bool $track): void
+    {
+        try {
+            if (! $track) {
+                $claim->delete();
+
+                return;
+            }
+
+            $attempts = $claim->attempts + 1;
+            $final = $attempts >= max(1, (int) config('invoices.delivery.retry.max_attempts', 3));
+
+            $claim->update([
+                'status' => $final ? DeliveryRecord::STATUS_FAILED_FINAL : DeliveryRecord::STATUS_FAILED,
+                'attempts' => $attempts,
+                'last_error' => mb_substr($cause, 0, 1000),
+            ]);
+
+            if ($final) {
+                Log::error(DeliveryRecord::LOG_FAILED_FINAL, [
+                    'invoice_id' => $invoice->getKey(),
+                    'number' => $invoice->number,
+                    'attempts' => $attempts,
+                    'last_error' => $cause,
+                    'runbook' => 'Fix the cause, then: php artisan invoices:release '.$invoice->number,
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::error('invoices: '.$invoice->number.' could not be sent, and its delivery claim could not be updated; it stays in "sending" until somebody runs invoices:release.', [
+                'invoice_id' => $invoice->getKey(),
+                'exception' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * A retry that stopped before the claim (no address, sender refused) still
+     * used up an attempt; otherwise it would come back every five minutes
+     * forever.
+     */
+    protected function noteFailedAttempt(?DeliveryRecord $row, string $cause): void
+    {
+        if ($row === null || $row->status !== DeliveryRecord::STATUS_FAILED) {
+            return;
+        }
+
+        $invoice = $row->invoice;
+
+        if ($invoice !== null) {
+            $this->failClaim($invoice, $row, $cause, true);
+        }
     }
 
     /**

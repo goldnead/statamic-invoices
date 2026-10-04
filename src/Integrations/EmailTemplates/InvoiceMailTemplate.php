@@ -171,12 +171,9 @@ class InvoiceMailTemplate
     public function variables(Invoice $invoice): array
     {
         $seller = (array) ($invoice->seller ?? []);
-        $name = is_string($invoice->buyer_name) && trim($invoice->buyer_name) !== ''
-            ? trim($invoice->buyer_name)
-            : (string) $invoice->buyer_email;
 
         return [
-            'buyer' => ['name' => $name, 'email' => (string) $invoice->buyer_email],
+            'buyer' => ['name' => static::greetingName($invoice), 'email' => (string) $invoice->buyer_email],
             'invoice' => [
                 'number' => (string) $invoice->number,
                 'date' => DisplayTime::of($invoice->issued_at)->format('d.m.Y'),
@@ -187,6 +184,29 @@ class InvoiceMailTemplate
             'product' => static::product($invoice),
             'portal_url' => static::portalUrl(),
         ];
+    }
+
+    /**
+     * What the mail calls the buyer: the name stored on the invoice, else the
+     * part of the address before the `@`, never the whole address.
+     *
+     * No lookup of a user or customer account in between: an invoice stores no
+     * link to one (only `payment_id`, and the payment has the same name this
+     * row already copied from it), and an invoice does not reach back for data
+     * that can change. The full address stays in `buyer.email`.
+     */
+    public static function greetingName(Invoice $invoice): string
+    {
+        $name = trim((string) $invoice->buyer_name);
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        $email = trim((string) $invoice->buyer_email);
+        $local = strstr($email, '@', true);
+
+        return is_string($local) && trim($local) !== '' ? trim($local) : $email;
     }
 
     /**

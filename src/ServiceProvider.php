@@ -23,6 +23,7 @@ use Goldnead\Invoices\Support\DompdfRenderer;
 use Goldnead\Invoices\Support\NumberSeries;
 use Goldnead\Invoices\Support\Settings;
 use Goldnead\Invoices\Verification\ViesVerifier;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Statamic\Facades\Permission;
@@ -122,7 +123,28 @@ class ServiceProvider extends AddonServiceProvider
             ->bootSettings()
             ->bootPermissions()
             ->bootUtility()
+            ->bootSchedule()
             ->bootPublishing();
+    }
+
+    /**
+     * `invoices:retry` on the host's scheduler, every five minutes.
+     *
+     * Registered here so a site does not have to remember it, and switchable
+     * (`delivery.retry.schedule`) for a host that schedules it itself. It only
+     * does something where the host runs `schedule:run` at all.
+     */
+    protected function bootSchedule(): self
+    {
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
+            if (! config('invoices.delivery.retry.schedule', true)) {
+                return;
+            }
+
+            $schedule->command('invoices:retry')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
+        });
+
+        return $this;
     }
 
     /**
