@@ -157,6 +157,20 @@ return [
             'enabled' => env('INVOICES_HOLD_UNEXPECTED_ZERO_TAX', true),
             'accept' => ['reverse_charge', 'intra_community_supply', 'export', 'outside_scope'],
         ],
+
+        // A send that failed (renderer, mail server) is tried again by
+        // `php artisan invoices:retry`, which the addon puts on the scheduler
+        // every five minutes (the host must run `schedule:run`). At most
+        // `max_attempts` sends in all, the first one included; after the last
+        // the row is `failed_final`, logged as `invoices: delivery failed
+        // for good` and listed by `invoices:held`. The gap before attempt n+1
+        // is `after_minutes` * 2^(n-1). `schedule` false: the host schedules
+        // the command itself.
+        'retry' => [
+            'max_attempts' => env('INVOICES_RETRY_MAX_ATTEMPTS', 3),
+            'after_minutes' => env('INVOICES_RETRY_AFTER_MINUTES', 10),
+            'schedule' => env('INVOICES_RETRY_SCHEDULE', true),
+        ],
     ],
 
     /*

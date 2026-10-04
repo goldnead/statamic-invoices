@@ -6,10 +6,11 @@ use Goldnead\Invoices\Models\DeliveryRecord;
 use Illuminate\Console\Command;
 
 /**
- * Invoices that were written and did not go out: held back on purpose, or
- * stuck in "sending" because a process died between the claim and the mail.
+ * Invoices that were written and did not go out: held back on purpose, stuck
+ * in "sending" because a process died between the claim and the mail, failed
+ * and waiting for `invoices:retry`, or `failed_final` (out of attempts).
  *
- * Both need a person. `invoices:release {number}` sends one as it is.
+ * All but `failed` need a person. `invoices:release {number}` sends one as it is.
  */
 class HeldInvoices extends Command
 {
@@ -20,7 +21,12 @@ class HeldInvoices extends Command
     public function handle(): int
     {
         $rows = DeliveryRecord::query()
-            ->whereIn('status', [DeliveryRecord::STATUS_HELD, DeliveryRecord::STATUS_SENDING])
+            ->whereIn('status', [
+                DeliveryRecord::STATUS_HELD,
+                DeliveryRecord::STATUS_SENDING,
+                DeliveryRecord::STATUS_FAILED,
+                DeliveryRecord::STATUS_FAILED_FINAL,
+            ])
             ->with('invoice')
             ->orderBy('id')
             ->get();
@@ -35,8 +41,8 @@ class HeldInvoices extends Command
             ['Number', 'Status', 'Reason', 'Recipient', 'Since'],
             $rows->map(fn (DeliveryRecord $row) => [
                 (string) $row->invoice?->number,
-                $row->status,
-                (string) $row->reason,
+                $row->status.($row->attempts > 0 ? " ({$row->attempts})" : ''),
+                (string) ($row->reason ?? $row->last_error),
                 (string) $row->recipient,
                 (string) $row->updated_at,
             ])->all(),

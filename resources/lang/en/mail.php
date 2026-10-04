@@ -21,7 +21,7 @@ return [
         .'<p>Kind regards<br>{{ seller.name }}</p>',
 
     'placeholders' => [
-        'buyer_name' => 'Buyer\'s name (their email address when there is none)',
+        'buyer_name' => 'Buyer\'s name (the part of their email address before the @ when there is none)',
         'buyer_email' => 'Buyer\'s email address',
         'invoice_number' => 'Invoice number',
         'invoice_date' => 'Invoice date',

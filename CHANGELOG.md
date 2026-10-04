@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+Proposed version 2.7.0: a new command, new config keys and a migration, so more than a patch.
+
+### Added
+
+- **`invoices:retry`**: a send that failed (renderer, mail server) is tried again by itself,
+  `delivery.retry.max_attempts` sends in all (default 3, `INVOICES_RETRY_MAX_ATTEMPTS`), the gap
+  `delivery.retry.after_minutes` (default 10) doubled per attempt. The addon schedules it every
+  five minutes (`delivery.retry.schedule`, `INVOICES_RETRY_SCHEDULE`); the site needs a running
+  `schedule:run`. Exactly one mail per invoice still holds: only `failed` rows are retried, claimed
+  atomically; `sent`, `sending`, `held` and `failed_final` are never touched.
+- After the last attempt the row is `failed_final`, logged at `error` as
+  `invoices: delivery failed for good, out of attempts`, and shown by `invoices:held`.
+  `invoices:release` still sends it by hand.
+
+### Changed
+
+- **The greeting is never the full address.** `buyer.name` in the mail template is the stored name,
+  else the part of the address before the `@`; `buyer.email` stays the full address. (An invoice
+  stores no link to a user or customer account, so there is no lookup between the two.)
+- A failed attempt keeps its row as `failed` (it used to remove the claim). `send()` on such an
+  invoice still sends, so a second call after a failure behaves as before.
+
+### Upgrading
+
+- **Run the migration** (`attempts`, `last_error` on `invoice_deliveries`). Without it a failed
+  send cannot be recorded and stays in `sending` until `invoices:release`.
+- Make sure the site's scheduler runs (`php artisan schedule:run` every minute). Hosts that
+  schedule `invoices:retry` themselves set `INVOICES_RETRY_SCHEDULE=false`.
+
 ## 2.6.0 — 2026-10-04
 
 The invoice mail can do what adriangoldner.com's own delivery did, so a site no longer needs a

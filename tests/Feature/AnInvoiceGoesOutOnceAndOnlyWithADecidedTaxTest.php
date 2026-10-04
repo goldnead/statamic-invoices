@@ -107,7 +107,7 @@ class AnInvoiceGoesOutOnceAndOnlyWithADecidedTaxTest extends TestCase
         $this->renderFails = true;
         InvoiceIssued::dispatch($rechnung);
         $this->assertSame(0, $this->gesendet());
-        $this->assertFalse(DeliveryRecord::query()->where('invoice_id', $rechnung->id)->exists());
+        $this->assertSame(DeliveryRecord::STATUS_FAILED, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
 
         $this->renderFails = false;
         $this->assertTrue(app(InvoiceDelivery::class)->send($rechnung));

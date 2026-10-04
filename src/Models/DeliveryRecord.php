@@ -19,6 +19,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $recipient
  * @property string|null $subject
  * @property string|null $reason
+ * @property int $attempts
+ * @property string|null $last_error
  * @property Carbon|null $updated_at
  */
 class DeliveryRecord extends Model
@@ -30,6 +32,14 @@ class DeliveryRecord extends Model
 
     /** Not sent on purpose, see `reason`. Stays until a person decides. */
     public const STATUS_HELD = 'held';
+
+    /** The last send failed (renderer, mail server); `invoices:retry` tries again. */
+    public const STATUS_FAILED = 'failed';
+
+    /** Out of attempts. Stays until a person decides: `invoices:release`. */
+    public const STATUS_FAILED_FINAL = 'failed_final';
+
+    public const LOG_FAILED_FINAL = 'invoices: delivery failed for good, out of attempts';
 
     protected $table = 'invoice_deliveries';
 

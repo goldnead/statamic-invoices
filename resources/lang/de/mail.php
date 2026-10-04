@@ -21,7 +21,7 @@ return [
         .'<p>Freundliche Grüße<br>{{ seller.name }}</p>',
 
     'placeholders' => [
-        'buyer_name' => 'Name des Käufers (ohne Namen seine E-Mail-Adresse)',
+        'buyer_name' => 'Name des Käufers (ohne Namen der Teil seiner E-Mail-Adresse vor dem @)',
         'buyer_email' => 'E-Mail-Adresse des Käufers',
         'invoice_number' => 'Rechnungsnummer',
         'invoice_date' => 'Rechnungsdatum',

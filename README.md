@@ -214,13 +214,51 @@ path cannot reach around that, because it only ever receives an invoice somebody
 **One mail per invoice.** Whether an invoice went out is recorded in `invoice_deliveries` (the
 invoice row itself cannot change). The row is claimed before the mail is built, and its unique
 `invoice_id` lets exactly one attempt through: an event that arrives twice sends once. An attempt
-that fails (the renderer, the mail server) removes its claim, so the next one can send. A process
+that fails (the renderer, the mail server) turns its claim into `failed`, so the next one can
+send (see "A failed send is tried again"). A process
 that dies mid-send leaves the claim in `sending`; that invoice is not sent again by itself, because
 nobody can tell whether the first one arrived. The same holds for a mail server that accepted the
 message and then timed out before it answered: the attempt counts as failed, its claim is
 released, and the next attempt sends a second copy. That is the one case where a buyer can get the
 invoice twice; it is preferred over the opposite failure, a buyer who never gets it.
 `php artisan invoices:held` lists invoices stuck in `sending` together with the held ones.
+
+### A failed send is tried again
+
+A send that fails (the PDF renderer, the mail server) keeps its row in `invoice_deliveries` as
+`failed`, with the attempt counted and the cause in `last_error`. `php artisan invoices:retry`
+picks those rows up and sends again. Only `failed` rows: never `sent`, `sending`, `held` or
+`failed_final`. The claim is atomic, so two runs at once send one mail.
+
+```php
+'delivery' => [
+    'retry' => [
+        'max_attempts' => 3,    // INVOICES_RETRY_MAX_ATTEMPTS, the first send included
+        'after_minutes' => 10,  // INVOICES_RETRY_AFTER_MINUTES, doubled for every attempt made
+        'schedule' => true,     // INVOICES_RETRY_SCHEDULE
+    ],
+],
+```
+
+With the defaults the retries come about 10 and 20 minutes after the failure before the third and
+last send. After the last one the row is `failed_final`: it is logged at `error` with the message
+`invoices: delivery failed for good, out of attempts` (invoice, attempts, last error, what to
+do), no longer retried, and listed by `invoices:held`. The way out is the same as for a held
+invoice: fix the cause, then `php artisan invoices:release RE-2026-10-001`.
+
+**The scheduler must run.** The addon puts `invoices:retry` on Laravel's scheduler every five
+minutes, so the site needs the usual cron entry and nothing else:
+
+```
+* * * * * cd /path/to/site && php artisan schedule:run >> /dev/null 2>&1
+```
+
+A host that schedules the command itself sets `delivery.retry.schedule` to `false` and registers
+`$schedule->command('invoices:retry')->everyFiveMinutes()->withoutOverlapping()`. Without a running
+scheduler nothing is retried; `invoices:retry` by hand does the same.
+
+A process that dies mid-send still leaves `sending`, and that invoice is still not retried (see
+above). A release that fails is not retried either; it puts the hold back.
 
 **The covering letter names what was bought**, word for word as the invoice lines do, and carries
 the `Reply-To` you set (also on the settings screen).
@@ -283,7 +321,8 @@ document itself.
 With [goldnead/statamic-email-templates](https://github.com/goldnead/statamic-email-templates)
 installed, the invoice mail registers there as `invoices-invoice` (config `delivery.template`, env
 `INVOICES_MAIL_TEMPLATE`), listed under "Invoices" with its occasion (`InvoiceIssued`) and
-placeholders: `{{ buyer.name }}` (the address when there is no name), `{{ buyer.email }}`,
+placeholders: `{{ buyer.name }}` (without a stored name the part of the address before the `@`, never the whole
+address), `{{ buyer.email }}` (the full address),
 `{{ invoice.number }}`, `{{ invoice.date }}`, `{{ amount }}`, `{{ seller.name }}`, `{{ site_name }}`,
 `{{ product }}` (the invoice lines, comma-separated) and `{{ portal_url }}` (the sign-in page of the
 statamic-payments customer account, where the invoice can be downloaded; empty without it).
