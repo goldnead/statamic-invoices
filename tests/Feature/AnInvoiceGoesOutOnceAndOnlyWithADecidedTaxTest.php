@@ -110,6 +110,12 @@ class AnInvoiceGoesOutOnceAndOnlyWithADecidedTaxTest extends TestCase
         $this->assertSame(DeliveryRecord::STATUS_FAILED, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
 
         $this->renderFails = false;
+
+        // The event firing again right away waits out the backoff.
+        $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
+        $this->assertSame(0, $this->gesendet());
+
+        DB::table('invoice_deliveries')->where('invoice_id', $rechnung->id)->update(['updated_at' => now()->subMinutes(11)]);
         $this->assertTrue(app(InvoiceDelivery::class)->send($rechnung));
         $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
 

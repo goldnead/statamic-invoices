@@ -10,6 +10,7 @@ use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Sending\BrandMailer;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -57,6 +58,16 @@ class InvoiceDelivery
 
         if ($record?->status === DeliveryRecord::STATUS_SENT) {
             return false;
+        }
+
+        // A claim that is only minutes old is most likely a send still in
+        // flight, and releasing it would mail a second copy.
+        $grace = max(0, (int) config('invoices.delivery.release_sending_after_minutes', 10));
+
+        if ($record?->status === DeliveryRecord::STATUS_SENDING
+            && $record->updated_at !== null
+            && $record->updated_at->gt(now()->subMinutes($grace))) {
+            throw new RuntimeException("{$invoice->number} is being sent right now (claimed less than {$grace} minutes ago). Wait, then release it if it is still in sending.");
         }
 
         Log::warning('invoices: '.$invoice->number.' released by hand and sent as it is.', [
@@ -120,7 +131,9 @@ class InvoiceDelivery
         // The one row that invites another try is `failed`.
         $previous = DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->first();
 
-        if ($previous !== null && $previous->status !== DeliveryRecord::STATUS_FAILED) {
+        // A `failed` row also waits out its backoff here, so the event firing
+        // again right after a failure does not undercut `invoices:retry`.
+        if ($previous !== null && ! $previous->isDueForRetry()) {
             return false;
         }
 

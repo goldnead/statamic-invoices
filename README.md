@@ -257,8 +257,21 @@ A host that schedules the command itself sets `delivery.retry.schedule` to `fals
 `$schedule->command('invoices:retry')->everyFiveMinutes()->withoutOverlapping()`. Without a running
 scheduler nothing is retried; `invoices:retry` by hand does the same.
 
+The event firing again before the wait is over sends nothing either; the wait applies to every
+caller. A retry skips the zero-tax guard: the row got past it the first time (or was released on
+purpose), and an invoice cannot change in between.
+
 A process that dies mid-send still leaves `sending`, and that invoice is still not retried (see
-above). A release that fails is not retried either; it puts the hold back.
+above). `invoices:release` refuses a `sending` row younger than 10 minutes
+(`delivery.release_sending_after_minutes`, `INVOICES_RELEASE_SENDING_AFTER_MINUTES`), because that
+is most likely a send still running; an older one can be released. A release that fails is not
+retried either; it puts the hold back.
+
+**A sender that is refused before the claim leaves no row and is not retried.** A brand that
+declared a mail identity without an address is a configuration fault that repeats for every
+invoice; it is logged (`invoices: <number> was not sent; the sender identity was refused.`) and
+nothing else happens until somebody fixes the configuration. Only a sender refused after the
+claim, or an exception while building or sending, ends as `failed`.
 
 **The covering letter names what was bought**, word for word as the invoice lines do, and carries
 the `Reply-To` you set (also on the settings screen).

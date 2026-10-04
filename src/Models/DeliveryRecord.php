@@ -46,6 +46,23 @@ class DeliveryRecord extends Model
     protected $guarded = [];
 
     /**
+     * Whether a `failed` row has waited long enough for its next attempt:
+     * `delivery.retry.after_minutes`, doubled for every attempt already made.
+     * The one rule behind `invoices:retry` and a send that arrives by itself
+     * (the event firing again).
+     */
+    public function isDueForRetry(): bool
+    {
+        if ($this->status !== self::STATUS_FAILED || $this->updated_at === null) {
+            return false;
+        }
+
+        $after = max(1, (int) config('invoices.delivery.retry.after_minutes', 10));
+
+        return $this->updated_at->lte(Carbon::now()->subMinutes($after * (2 ** max(0, $this->attempts - 1))));
+    }
+
+    /**
      * @return BelongsTo<Invoice, $this>
      */
     public function invoice(): BelongsTo

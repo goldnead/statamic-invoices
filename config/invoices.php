@@ -171,6 +171,10 @@ return [
             'after_minutes' => env('INVOICES_RETRY_AFTER_MINUTES', 10),
             'schedule' => env('INVOICES_RETRY_SCHEDULE', true),
         ],
+
+        // `invoices:release` refuses a row in `sending` younger than this many
+        // minutes: it is most likely a send still in flight.
+        'release_sending_after_minutes' => env('INVOICES_RELEASE_SENDING_AFTER_MINUTES', 10),
     ],
 
     /*

@@ -70,6 +70,192 @@ class AFailedSendIsTriedAgainTest extends TestCase
         $app['config']->set('mail.default', 'array');
         $app['config']->set('mail.from', ['address' => 'post@host.test', 'name' => 'Der Host']);
         $app['config']->set('invoices.tax.small_business.enabled', false);
+
+        // Strict guard, as adg sets it: an export zero on a rated product is held.
+        $app['config']->set('invoices.tax.product_classes', ['kurs' => 'standard']);
+        $app['config']->set('invoices.tax.default_product_class', null);
+        $app['config']->set('invoices.delivery.zero_tax_guard.accept', ['reverse_charge', 'intra_community_supply']);
+    }
+
+    // ── Der Claim ist ein Vergleich-und-Setzen ───────────────────────────────
+
+    #[Test]
+    public function a_stale_failed_read_loses_the_claim_to_a_row_that_became_sending_or_sent(): void
+    {
+        foreach ([DeliveryRecord::STATUS_SENDING, DeliveryRecord::STATUS_SENT] as $anderer) {
+            $rechnung = $this->rechnung();
+            $this->scheitern($rechnung);
+            $this->altern($rechnung, minuten: 11);
+            $this->renderFails = false;
+            $vorher = $this->gesendet();
+
+            // Another run reads the same `failed` row ... and wins in between.
+            $einmal = true;
+            DeliveryRecord::retrieved(function (DeliveryRecord $row) use (&$einmal, $anderer) {
+                if ($einmal && $row->status === DeliveryRecord::STATUS_FAILED) {
+                    $einmal = false;
+                    DB::table('invoice_deliveries')->where('id', $row->id)->update(['status' => $anderer]);
+                }
+            });
+
+            try {
+                $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung), "status {$anderer}");
+            } finally {
+                DeliveryRecord::flushEventListeners();
+            }
+
+            $this->assertSame($vorher, $this->gesendet(), "status {$anderer}: no mail from the loser");
+            $this->assertSame($anderer, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+        }
+    }
+
+    #[Test]
+    public function of_two_runs_on_one_failed_row_exactly_one_mail_goes_out(): void
+    {
+        $rechnung = $this->rechnung();
+        $this->scheitern($rechnung);
+        $this->altern($rechnung, minuten: 11);
+        $this->renderFails = false;
+
+        $zweiter = null;
+        $einmal = true;
+        // The first run is mid-claim (after its read) when the second one starts and completes.
+        DeliveryRecord::retrieved(function (DeliveryRecord $row) use (&$einmal, &$zweiter, $rechnung) {
+            if ($einmal && $row->status === DeliveryRecord::STATUS_FAILED) {
+                $einmal = false;
+                $zweiter = app(InvoiceDelivery::class)->send($rechnung->fresh(['items']));
+            }
+        });
+
+        try {
+            $erster = app(InvoiceDelivery::class)->send($rechnung);
+        } finally {
+            DeliveryRecord::flushEventListeners();
+        }
+
+        $this->assertTrue($zweiter);
+        $this->assertFalse($erster);
+        $this->assertSame(1, $this->gesendet());
+    }
+
+    // ── Freigabe von failed ──────────────────────────────────────────────────
+
+    #[Test]
+    public function release_sends_a_failed_and_a_failed_final_row(): void
+    {
+        foreach ([DeliveryRecord::STATUS_FAILED, DeliveryRecord::STATUS_FAILED_FINAL] as $status) {
+            $rechnung = $this->rechnung();
+            DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => $status, 'attempts' => 3]);
+            $vorher = $this->gesendet();
+
+            $this->artisan('invoices:release', ['number' => $rechnung->number])->assertSuccessful();
+
+            $this->assertSame($vorher + 1, $this->gesendet(), $status);
+            $this->assertSame(DeliveryRecord::STATUS_SENT, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+        }
+    }
+
+    #[Test]
+    public function a_failed_release_puts_failed_and_failed_final_back_as_they_were(): void
+    {
+        foreach ([DeliveryRecord::STATUS_FAILED, DeliveryRecord::STATUS_FAILED_FINAL] as $status) {
+            $rechnung = $this->rechnung();
+            DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => $status, 'attempts' => 3, 'last_error' => 'boom']);
+
+            $this->renderFails = true;
+            $this->artisan('invoices:release', ['number' => $rechnung->number])->assertFailed();
+
+            $eintrag = DeliveryRecord::query()->where('invoice_id', $rechnung->id)->firstOrFail();
+            $this->assertSame($status, $eintrag->status);
+            $this->assertSame(3, $eintrag->attempts);
+            $this->assertSame('boom', $eintrag->last_error);
+        }
+    }
+
+    #[Test]
+    public function release_refuses_a_fresh_sending_row_and_frees_an_old_one(): void
+    {
+        $rechnung = $this->rechnung();
+        DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => DeliveryRecord::STATUS_SENDING]);
+
+        $this->artisan('invoices:release', ['number' => $rechnung->number])
+            ->expectsOutputToContain('is being sent right now')
+            ->assertFailed();
+        $this->assertSame(0, $this->gesendet());
+        $this->assertSame(DeliveryRecord::STATUS_SENDING, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+
+        $this->altern($rechnung, minuten: 11);
+
+        $this->artisan('invoices:release', ['number' => $rechnung->number])->assertSuccessful();
+        $this->assertSame(1, $this->gesendet());
+    }
+
+    // ── Pflichtwege ohne Anspruch auf Versand ────────────────────────────────
+
+    #[Test]
+    public function a_retry_that_stops_before_the_claim_still_uses_up_attempts_until_failed_final(): void
+    {
+        $rechnung = $this->rechnung();
+        $rechnung->forceFill(['buyer_email' => ''])->saveQuietly();
+        DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => DeliveryRecord::STATUS_FAILED, 'attempts' => 1]);
+
+        foreach ([2, 3] as $versuch) {
+            $this->altern($rechnung, minuten: 200);
+            $this->artisan('invoices:retry')->assertSuccessful();
+            $this->assertSame($versuch, (int) DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('attempts'));
+        }
+
+        $this->assertSame(DeliveryRecord::STATUS_FAILED_FINAL, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+        $this->assertSame(0, $this->gesendet());
+    }
+
+    #[Test]
+    public function a_retry_skips_the_zero_tax_guard_that_the_first_attempt_passed(): void
+    {
+        // The guard is on: a fresh export zero on a rated product is held ...
+        $neu = $this->rechnung(mechanism: 'export', rate: 0, land: 'CH');
+        InvoiceIssued::dispatch($neu);
+        $this->assertSame(DeliveryRecord::STATUS_HELD, DeliveryRecord::query()->where('invoice_id', $neu->id)->value('status'));
+
+        // ... but a row that already failed once was past it (the invoice cannot
+        // change in between), so the retry does not hold it again.
+        $rechnung = $this->rechnung(mechanism: 'export', rate: 0, land: 'CH');
+        DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => DeliveryRecord::STATUS_FAILED, 'attempts' => 1]);
+        $this->altern($rechnung, minuten: 11);
+
+        $this->artisan('invoices:retry')->assertSuccessful();
+
+        $this->assertSame(1, $this->gesendet());
+        $this->assertSame(DeliveryRecord::STATUS_SENT, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+    }
+
+    #[Test]
+    public function the_event_firing_again_waits_out_the_backoff(): void
+    {
+        $rechnung = $this->rechnung();
+        $this->scheitern($rechnung);
+        $this->renderFails = false;
+
+        InvoiceIssued::dispatch($rechnung);
+        $this->assertSame(0, $this->gesendet());
+
+        $this->altern($rechnung, minuten: 11);
+        InvoiceIssued::dispatch($rechnung);
+        $this->assertSame(1, $this->gesendet());
+    }
+
+    #[Test]
+    public function an_intermediate_failure_is_logged_with_the_number_only(): void
+    {
+        Log::spy();
+        $rechnung = $this->rechnung();
+        $this->scheitern($rechnung);
+        $this->altern($rechnung, minuten: 11);
+
+        $this->artisan('invoices:retry')->assertSuccessful();
+
+        Log::shouldHaveReceived('warning')->withArgs(fn (string $m, array $ctx = []) => $m === 'invoices: retry failed'
+            && $ctx === ['number' => $rechnung->number, 'attempt' => 2])->once();
     }
 
     // ── Wiederholung ─────────────────────────────────────────────────────────
@@ -274,7 +460,7 @@ class AFailedSendIsTriedAgainTest extends TestCase
         DB::table('invoice_deliveries')->where('invoice_id', $rechnung->id)->update(['updated_at' => now()->subMinutes($minuten)]);
     }
 
-    private function rechnung(?string $name = 'Maria Beispiel', string $email = 'maria.beispiel@example.com'): Invoice
+    private function rechnung(?string $name = 'Maria Beispiel', string $email = 'maria.beispiel@example.com', ?string $mechanism = 'standard', int $rate = 1900, string $land = 'DE'): Invoice
     {
         $this->nummer++;
 
@@ -286,10 +472,10 @@ class AFailedSendIsTriedAgainTest extends TestCase
             'currency' => 'EUR',
             'buyer_name' => $name,
             'buyer_email' => $email,
-            'buyer_country' => 'DE',
+            'buyer_country' => $land,
             'seller' => ['name' => 'Nordlicht Studio', 'email' => 'rechnung@nordlicht.test'],
-            'net_cent' => 10000,
-            'tax_cent' => 1900,
+            'net_cent' => $rate === 0 ? 11900 : 10000,
+            'tax_cent' => $rate === 0 ? 0 : 1900,
             'gross_cent' => 11900,
         ]);
 
@@ -297,11 +483,11 @@ class AFailedSendIsTriedAgainTest extends TestCase
             'product' => 'kurs',
             'name' => 'Chorleitungskurs',
             'quantity' => 1,
-            'unit_net_cent' => 10000,
-            'net_cent' => 10000,
-            'tax_rate_bp' => 1900,
-            'tax_mechanism' => 'standard',
-            'tax_cent' => 1900,
+            'unit_net_cent' => $rate === 0 ? 11900 : 10000,
+            'net_cent' => $rate === 0 ? 11900 : 10000,
+            'tax_rate_bp' => $rate,
+            'tax_mechanism' => $mechanism,
+            'tax_cent' => $rate === 0 ? 0 : 1900,
             'gross_cent' => 11900,
         ]));
 

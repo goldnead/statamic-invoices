@@ -5,7 +5,7 @@ namespace Goldnead\Invoices\Console\Commands;
 use Goldnead\Invoices\Delivery\InvoiceDelivery;
 use Goldnead\Invoices\Models\DeliveryRecord;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -29,16 +29,12 @@ class RetryInvoices extends Command
             return self::SUCCESS;
         }
 
-        $after = max(1, (int) config('invoices.delivery.retry.after_minutes', 10));
-
         $rows = DeliveryRecord::query()
             ->where('status', DeliveryRecord::STATUS_FAILED)
             ->with('invoice.items')
             ->orderBy('id')
             ->get()
-            ->filter(fn (DeliveryRecord $row) => $row->invoice !== null
-                && $row->updated_at !== null
-                && $row->updated_at->lte(Carbon::now()->subMinutes($after * (2 ** max(0, $row->attempts - 1)))));
+            ->filter(fn (DeliveryRecord $row) => $row->invoice !== null && $row->isDueForRetry());
 
         $sent = 0;
 
@@ -48,7 +44,13 @@ class RetryInvoices extends Command
                     $sent++;
                 }
             } catch (Throwable $e) {
-                // Already counted and logged by the delivery; the next row goes on.
+                // The delivery has counted the attempt (and logs the final one at
+                // error); the cause is kept on the row. Here it is only said that
+                // a retry ran, with the number and nothing else about the buyer.
+                Log::warning('invoices: retry failed', [
+                    'number' => $row->invoice->number,
+                    'attempt' => $row->attempts + 1,
+                ]);
                 $this->components->warn($row->invoice->number.' failed again: '.$e->getMessage());
             }
         }

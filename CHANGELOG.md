@@ -16,6 +16,9 @@ Proposed version 2.7.0: a new command, new config keys and a migration, so more 
   `invoices: delivery failed for good, out of attempts`, and shown by `invoices:held`.
   `invoices:release` still sends it by hand.
 
+- `invoices:release` refuses a `sending` row younger than 10 minutes
+  (`delivery.release_sending_after_minutes`): most likely a send still in flight.
+
 ### Changed
 
 - **The greeting is never the full address.** `buyer.name` in the mail template is the stored name,
