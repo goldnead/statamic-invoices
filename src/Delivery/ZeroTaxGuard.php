@@ -22,8 +22,15 @@ use Goldnead\Invoices\Support\TaxResult;
  * did not come from the class's own rate (`standard` at a zone rate of 0), from
  * the exemption, or from § 19. What is left is a zero that a cross-border rule
  * produced. `accept` names the rules whose zero is taken as decided; by default
- * reverse charge and the intra-community supply, which only arise on a VAT ID
- * the issuing register has confirmed.
+ * all four cross-border rules TaxRules applies, so a site narrows it to hold
+ * (adriangoldner.com accepts only reverse charge and the intra-community
+ * supply, which arise on a VAT ID the register confirmed).
+ *
+ * The class is looked up as TaxRules looks it up: the product's entry in
+ * `tax.product_classes`, then `tax.default_product_class`. With a default
+ * class set, every product counts as having a rated class, including one the
+ * site never listed; that is the same answer TaxRules gave when it wrote the
+ * line, so the guard holds where the rate came from that default, too.
  *
  * A line written before `tax_mechanism` existed has no rule stored; then only
  * the § 19 switch speaks for it, as in the site's original check.

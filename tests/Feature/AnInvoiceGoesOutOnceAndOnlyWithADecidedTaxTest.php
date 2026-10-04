@@ -2,6 +2,8 @@
 
 namespace Goldnead\Invoices\Tests\Feature;
 
+use Goldnead\Invoices\Console\Commands\HeldInvoices;
+use Goldnead\Invoices\Console\Commands\ReleaseInvoice;
 use Goldnead\Invoices\Contracts\PdfRenderer;
 use Goldnead\Invoices\Delivery\InvoiceDelivery;
 use Goldnead\Invoices\Delivery\ZeroTaxGuard;
@@ -13,6 +15,8 @@ use Goldnead\Invoices\ServiceProvider;
 use Goldnead\Invoices\Tests\TestCase;
 use Goldnead\StatamicPayments\Models\Payment;
 use Goldnead\StatamicPayments\Models\PaymentCommunication;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\Test;
@@ -75,6 +79,10 @@ class AnInvoiceGoesOutOnceAndOnlyWithADecidedTaxTest extends TestCase
         $app['config']->set('invoices.tax.exemptions', [
             'teaching' => ['reason' => 'Steuerfrei nach § 4 Nr. 20 Buchst. a UStG.', 'domestic_only' => true],
         ]);
+
+        // Enger als die Vorgabe, so wie adg es einstellt: nur was auf einer
+        // bestätigten USt-IdNr. steht, gilt als entschieden.
+        $app['config']->set('invoices.delivery.zero_tax_guard.accept', ['reverse_charge', 'intra_community_supply']);
     }
 
     // ── genau einmal ─────────────────────────────────────────────────────────
@@ -209,7 +217,130 @@ class AnInvoiceGoesOutOnceAndOnlyWithADecidedTaxTest extends TestCase
         $ausgeliefert = (require __DIR__.'/../../config/invoices.php')['delivery']['zero_tax_guard'];
 
         $this->assertTrue((bool) $ausgeliefert['enabled']);
-        $this->assertSame(['reverse_charge', 'intra_community_supply'], $ausgeliefert['accept']);
+        $this->assertSame(['reverse_charge', 'intra_community_supply', 'export', 'outside_scope'], $ausgeliefert['accept']);
+    }
+
+    #[Test]
+    public function by_default_every_rule_based_zero_goes_out_and_only_an_unexplained_one_is_held(): void
+    {
+        // Die ausgelieferte Vorgabe: ein Update auf 2.6 hält keine
+        // Ausfuhrrechnung an, die vorher rausging.
+        config(['invoices.delivery.zero_tax_guard.accept' => (require __DIR__.'/../../config/invoices.php')['delivery']['zero_tax_guard']['accept']]);
+
+        foreach (['reverse_charge' => 'AT', 'intra_community_supply' => 'AT', 'export' => 'CH', 'outside_scope' => 'US'] as $regel => $land) {
+            InvoiceIssued::dispatch($this->rechnung(mechanism: $regel, rate: 0, land: $land));
+        }
+
+        $this->assertSame(4, $this->gesendet());
+
+        // Keine Regel gespeichert und kein § 19: das erklärt nichts.
+        InvoiceIssued::dispatch($this->rechnung(mechanism: null, rate: 0));
+        $this->assertSame(4, $this->gesendet());
+
+        // Enger gestellt: dieselbe Ausfuhr wird gehalten.
+        config(['invoices.delivery.zero_tax_guard.accept' => ['reverse_charge', 'intra_community_supply']]);
+        InvoiceIssued::dispatch($this->rechnung(mechanism: 'export', rate: 0, land: 'CH'));
+        $this->assertSame(4, $this->gesendet());
+        $this->assertSame(2, DeliveryRecord::query()->where('status', DeliveryRecord::STATUS_HELD)->count());
+    }
+
+    // ── Einmaligkeit unter Konkurrenz ────────────────────────────────────────
+
+    #[Test]
+    public function a_claim_already_in_sending_stops_a_second_attempt(): void
+    {
+        $rechnung = $this->rechnung();
+
+        DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => DeliveryRecord::STATUS_SENDING]);
+
+        $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
+        $this->assertSame(0, $this->gesendet());
+    }
+
+    #[Test]
+    public function losing_the_race_for_the_claim_sends_nothing_and_throws_nothing(): void
+    {
+        $rechnung = $this->rechnung();
+
+        // Der andere Prozess schreibt seine Zeile zwischen der Prüfung und dem
+        // eigenen Insert: der Insert läuft in den eindeutigen Index.
+        DeliveryRecord::creating(function () use ($rechnung) {
+            DB::table('invoice_deliveries')->insert([
+                'invoice_id' => $rechnung->id,
+                'status' => DeliveryRecord::STATUS_SENDING,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+
+        try {
+            $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
+        } finally {
+            DeliveryRecord::flushEventListeners();
+        }
+
+        $this->assertSame(0, $this->gesendet());
+        $this->assertSame(1, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->count());
+    }
+
+    // ── Freigabe ohne SQL ────────────────────────────────────────────────────
+
+    #[Test]
+    public function a_held_invoice_is_listed_and_released_by_its_number(): void
+    {
+        Log::spy();
+
+        $rechnung = $this->rechnung(mechanism: 'export', rate: 0, land: 'CH');
+        InvoiceIssued::dispatch($rechnung);
+        $this->assertSame(0, $this->gesendet());
+
+        $this->registriereBefehle();
+
+        $this->artisan('invoices:held')
+            ->expectsOutputToContain($rechnung->number)
+            ->assertSuccessful();
+
+        $this->artisan('invoices:release', ['number' => $rechnung->number])->assertSuccessful();
+
+        $this->assertSame(1, $this->gesendet());
+        $this->assertSame(DeliveryRecord::STATUS_SENT, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+        Log::shouldHaveReceived('warning')->withArgs(fn (string $nachricht) => str_contains($nachricht, $rechnung->number.' released by hand'))->once();
+
+        // Kein zweites Mal, auch nicht von Hand.
+        $this->artisan('invoices:release', ['number' => $rechnung->number])->assertFailed();
+        $this->artisan('invoices:held')->expectsOutputToContain('No invoice is held back.')->assertSuccessful();
+        $this->assertSame(1, $this->gesendet());
+    }
+
+    #[Test]
+    public function a_release_that_fails_keeps_the_invoice_held(): void
+    {
+        $rechnung = $this->rechnung(mechanism: 'export', rate: 0, land: 'CH');
+        InvoiceIssued::dispatch($rechnung);
+
+        $this->registriereBefehle();
+        $this->renderFails = true;
+
+        $this->artisan('invoices:release', ['number' => $rechnung->number])->assertFailed();
+
+        $this->assertSame(0, $this->gesendet());
+        $this->assertSame(DeliveryRecord::STATUS_HELD, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
+    }
+
+    #[Test]
+    public function an_unknown_or_unheld_number_is_refused(): void
+    {
+        $this->registriereBefehle();
+
+        $this->artisan('invoices:release', ['number' => 'R-0000'])->assertFailed();
+        $this->artisan('invoices:release', ['number' => $this->rechnung()->number])->assertFailed();
+        $this->assertSame(0, $this->gesendet());
+    }
+
+    private function registriereBefehle(): void
+    {
+        $this->app[Kernel::class]->registerCommand($this->app->make(HeldInvoices::class));
+        $this->app[Kernel::class]->registerCommand($this->app->make(ReleaseInvoice::class));
     }
 
     private function rechnung(?string $mechanism = 'standard', int $rate = 1900, string $produkt = 'kurs', string $land = 'DE'): Invoice

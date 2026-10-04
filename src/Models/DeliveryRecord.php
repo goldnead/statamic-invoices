@@ -5,6 +5,7 @@ namespace Goldnead\Invoices\Models;
 use Goldnead\Invoices\Delivery\InvoiceDelivery;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * What became of an invoice's delivery: sent, held back, or in flight.
@@ -18,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $recipient
  * @property string|null $subject
  * @property string|null $reason
+ * @property Carbon|null $updated_at
  */
 class DeliveryRecord extends Model
 {

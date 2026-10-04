@@ -38,6 +38,75 @@ class InvoiceDelivery
      */
     public function send(Invoice $invoice): bool
     {
+        return $this->deliver($invoice, guarded: true);
+    }
+
+    /**
+     * A person decided: send this held (or stuck) invoice as it is.
+     *
+     * Drops its row in `invoice_deliveries` and sends without asking the
+     * zero-tax guard again, which would only hold it a second time. A row in
+     * `sent` is refused: that invoice reached the buyer, and a second copy is
+     * a decision this method does not make.
+     *
+     * @return bool whether it went out
+     */
+    public function release(Invoice $invoice): bool
+    {
+        $record = DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->first();
+
+        if ($record?->status === DeliveryRecord::STATUS_SENT) {
+            return false;
+        }
+
+        Log::warning('invoices: '.$invoice->number.' released by hand and sent as it is.', [
+            'invoice_id' => $invoice->getKey(),
+            'previous_status' => $record?->status,
+            'previous_reason' => $record?->reason,
+        ]);
+
+        $record?->delete();
+
+        try {
+            $sent = $this->deliver($invoice, guarded: false);
+        } catch (Throwable $e) {
+            $this->restore($invoice, $record);
+
+            throw $e;
+        }
+
+        if (! $sent) {
+            $this->restore($invoice, $record);
+        }
+
+        return $sent;
+    }
+
+    /**
+     * A release that did not get the mail out puts the hold back, so the
+     * invoice stays on `invoices:held` and can be released again, instead of
+     * falling back to an ordinary send that the guard would stop once more.
+     */
+    protected function restore(Invoice $invoice, ?DeliveryRecord $record): void
+    {
+        if ($record === null || DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->exists()) {
+            return;
+        }
+
+        try {
+            DeliveryRecord::create([
+                'invoice_id' => $invoice->getKey(),
+                'status' => DeliveryRecord::STATUS_HELD,
+                'recipient' => $record->recipient,
+                'reason' => $record->reason,
+            ]);
+        } catch (Throwable) {
+            // A concurrent attempt wrote its own row; that one is the answer.
+        }
+    }
+
+    protected function deliver(Invoice $invoice, bool $guarded): bool
+    {
         // Once per invoice, whatever calls this how often. A row here means the
         // invoice was sent, is being sent, or was held back on purpose; each of
         // the three is an answer a second attempt must not overrule.
@@ -77,7 +146,7 @@ class InvoiceDelivery
         // After the address and the sender, before the document: a held invoice
         // is a decision about this one document, and it is recorded so that no
         // later attempt sends it after all.
-        $deviations = $this->guard->deviations($invoice);
+        $deviations = $guarded ? $this->guard->deviations($invoice) : [];
 
         if ($deviations !== []) {
             return $this->hold($invoice, $to, $deviations);
@@ -100,8 +169,17 @@ class InvoiceDelivery
 
             $sent = $this->mailer->send($brandId, $to, $invoice->buyer_name, $mail);
         } catch (Throwable $e) {
-            // Nothing went out, so the way stays open for the next attempt.
-            $claim->delete();
+            // Nothing went out, so the way stays open for the next attempt. If
+            // freeing the claim fails too, the original cause is still the one
+            // that travels up: it is the one somebody has to fix.
+            try {
+                $claim->delete();
+            } catch (Throwable $freigabe) {
+                Log::error('invoices: '.$invoice->number.' could not be sent, and its delivery claim could not be released; it stays in "sending" until somebody runs invoices:release.', [
+                    'invoice_id' => $invoice->getKey(),
+                    'exception' => $freigabe->getMessage(),
+                ]);
+            }
 
             throw $e;
         }
@@ -132,7 +210,7 @@ class InvoiceDelivery
      * The record stays: a second attempt would find the same document. The
      * way out is a person: check the tax question, cancel the invoice with a
      * credit note, fix the cause, write it again. Releasing this one instead
-     * (deleting its row in `invoice_deliveries`) sends it as it is.
+     * ({@see release()}, `invoices:release`) sends it as it is.
      *
      * @param  list<array<string, mixed>>  $deviations
      */
@@ -158,7 +236,7 @@ class InvoiceDelivery
             'lines' => $deviations,
             'runbook' => 'Clarify the tax question for this country and product. Then cancel the invoice '
                 .'(Invoices::creditNoteFor), fix the configuration, write it again and send it. To send '
-                .'it unchanged instead, delete its row in invoice_deliveries and call InvoiceDelivery::send().',
+                .'it unchanged instead: php artisan invoices:release '.$invoice->number,
         ]);
 
         $this->logOnPayment($invoice, $to, null, 'failed', ['held' => ZeroTaxGuard::REASON]);
@@ -175,8 +253,7 @@ class InvoiceDelivery
      * `PaymentLog`, and this must not turn a delivered invoice into a fatal
      * error. The facade itself swallows and logs a failed write; it never
      * throws into a mail path.
-     */
-    /**
+     *
      * @param  array<string, mixed>  $meta
      */
     protected function logOnPayment(Invoice $invoice, string $to, ?string $sentSubject = null, string $status = 'sent', array $meta = []): void

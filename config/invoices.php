@@ -146,13 +146,16 @@ return [
         // and, with statamic-payments' log, shown on the payment.
         //
         // `accept` lists the rules whose zero counts as decided (values of
-        // TaxResult::MECHANISM_*). Reverse charge and the intra-community
-        // supply only arise on a VAT ID the register confirmed. Export and
-        // outside_scope arise from a country and the `digital` flag of a
-        // product; add them here if that is the decision you made.
+        // TaxResult::MECHANISM_*). By default every rule TaxRules applies by
+        // itself, so an upgrade stops nothing that went out before; held is
+        // what no rule explains (a line without a stored rule, outside § 19).
+        // Narrow it to hold more: export and outside_scope follow from a
+        // country and the `digital` flag of a product, and a site that never
+        // decided to sell tax-free abroad takes them out, e.g.
+        // ['reverse_charge', 'intra_community_supply'].
         'zero_tax_guard' => [
             'enabled' => env('INVOICES_HOLD_UNEXPECTED_ZERO_TAX', true),
-            'accept' => ['reverse_charge', 'intra_community_supply'],
+            'accept' => ['reverse_charge', 'intra_community_supply', 'export', 'outside_scope'],
         ],
     ],
 
