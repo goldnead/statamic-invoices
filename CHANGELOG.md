@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (proposed 2.6.0)
+## 2.6.0 — 2026-10-04
 
 The invoice mail can do what adriangoldner.com's own delivery did, so a site no longer needs a
 second path next to it.
