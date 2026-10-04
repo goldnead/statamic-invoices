@@ -201,8 +201,49 @@ path cannot reach around that, because it only ever receives an invoice somebody
     'enabled' => true,                        // off: the host sends them itself
     'subject' => 'Ihre Rechnung :number',
     'filename' => 'Rechnung-:number.pdf',
+    'template' => 'invoices-invoice',         // see "Writing the mail in the Control Panel"
+    'reply_to' => null,                       // INVOICES_MAIL_REPLY_TO; empty sets no Reply-To
+    'reply_to_name' => null,                  // INVOICES_MAIL_REPLY_TO_NAME
+    'zero_tax_guard' => [
+        'enabled' => true,                    // INVOICES_HOLD_UNEXPECTED_ZERO_TAX
+        'accept' => ['reverse_charge', 'intra_community_supply'],
+    ],
 ],
 ```
+
+**One mail per invoice.** Whether an invoice went out is recorded in `invoice_deliveries` (the
+invoice row itself cannot change). The row is claimed before the mail is built, and its unique
+`invoice_id` lets exactly one attempt through: an event that arrives twice sends once. An attempt
+that fails (the renderer, the mail server) removes its claim, so the next one can send. A process
+that dies mid-send leaves the claim in `sending`; that invoice is not sent again by itself, because
+nobody can tell whether the first one arrived.
+
+**The covering letter names what was bought**, word for word as the invoice lines do, and carries
+the `Reply-To` you set (also on the settings screen).
+
+### An invoice whose zero tax nobody decided is held back
+
+A line at 0 % is held when its product has a tax class (`tax.product_classes`, then
+`tax.default_product_class`), the class is not an exemption, and the zero came from a cross-border
+rule rather than from the class itself: not from the zone's rate for that class, not from the
+exemption, not from § 19. The case behind it: a third country and a product with
+`digital => false` end in the export rule, "Steuerfreie Ausfuhrlieferung.", for something that was
+a video session. **This decides no tax question.** It compares the document with your
+configuration and stops it before the buyer has it, because an invoice in a mailbox can only be
+cancelled.
+
+`accept` lists the rules (`TaxResult::MECHANISM_*`) whose zero you have decided. Reverse charge and
+the intra-community supply only arise on a VAT ID the register confirmed, so they are accepted by
+default. `export` and `outside_scope` are not: add them if that is your decision. Lines written
+before the `tax_mechanism` column existed store no rule; for them only the § 19 switch counts.
+
+A held invoice is not sent, now or on a retry. It is logged at `error` with the message
+`invoices: invoice held back, zero tax where the product's tax class carries a rate` (the lines,
+their class and rule, and what to do), recorded in `invoice_deliveries` with status `held` and
+reason `unexpected_zero_tax`, and, where statamic-payments keeps a communication log, noted on the
+payment as a failed invoice mail with `held` in its details. The way out: clarify the tax question,
+cancel with `Invoices::creditNoteFor()`, fix the configuration, write it again. To send it as it is,
+delete its row in `invoice_deliveries` and call `InvoiceDelivery::send()`.
 
 The mail leaves through brand-context's `BrandMailer`, which decides **who it comes from**:
 
@@ -222,8 +263,15 @@ With [goldnead/statamic-email-templates](https://github.com/goldnead/statamic-em
 installed, the invoice mail registers there as `invoices-invoice` (config `delivery.template`, env
 `INVOICES_MAIL_TEMPLATE`), listed under "Invoices" with its occasion (`InvoiceIssued`) and
 placeholders: `{{ buyer.name }}` (the address when there is no name), `{{ buyer.email }}`,
-`{{ invoice.number }}`, `{{ invoice.date }}`, `{{ amount }}`, `{{ seller.name }}`, `{{ site_name }}`.
-An import (`php please email-templates:import`) writes the shipped wording as an entry.
+`{{ invoice.number }}`, `{{ invoice.date }}`, `{{ amount }}`, `{{ seller.name }}`, `{{ site_name }}`,
+`{{ product }}` (the invoice lines, comma-separated) and `{{ portal_url }}` (the sign-in page of the
+statamic-payments customer account, where the invoice can be downloaded; empty without it).
+An import (`php please email-templates:import`) writes the shipped wording as an entry. On an
+email-templates before 2.8, which has no registry, the mail is offered to that import as a source
+instead.
+
+The template is where a site keeps its own voice: "du" or "Sie", its own subject, its own sign-off.
+To keep a slug the site already uses, point `delivery.template` at it.
 
 Once an entry with that slug exists, it writes subject and text, in the layout email-templates wraps
 it in; the PDF is attached as before and the sender rules above still apply. **Without an entry, or
@@ -367,7 +415,7 @@ document and says how many it derived.
   should land in the buyer's inbox on its own, or beside the refund the provider already announced,
   is a decision the host has to make.
 - **Re-sending by hand.** A delivery that fails is logged with the invoice number and the reason;
-  there is no `invoices:send` yet.
+  there is no `invoices:send` yet, and no screen that releases a held invoice.
 - **The OSS threshold.** Below €10,000 of annual turnover into other EU countries the seller's own
   rate applies; above it, the recipient's. That is a state over time and needs a turnover figure,
   which is a bookkeeping question rather than a per-line one. The seam is named in the code, and the
