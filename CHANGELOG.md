@@ -15,13 +15,18 @@ second path next to it.
   `INVOICES_MAIL_REPLY_TO_NAME`), also on the settings screen. Empty sets none.
 - **Zero-tax guard**, on by default (`delivery.zero_tax_guard.enabled`,
   `INVOICES_HOLD_UNEXPECTED_ZERO_TAX`, settings screen). An invoice with 0 % on a line whose product
-  has a rated tax class, where the zero came from a cross-border rule not listed in
-  `delivery.zero_tax_guard.accept` (default: `reverse_charge`, `intra_community_supply`), is held
-  back: not sent, logged at `error` (`invoices: invoice held back, ...`), recorded as `held`, and
-  noted on the payment where statamic-payments keeps a communication log.
+  has a rated tax class, where the zero came from a rule not listed in
+  `delivery.zero_tax_guard.accept`, is held back: not sent, logged at `error`
+  (`invoices: invoice held back, ...`), recorded as `held`, and noted on the payment where
+  statamic-payments keeps a communication log. The default `accept` holds all four rules `TaxRules`
+  applies (`reverse_charge`, `intra_community_supply`, `export`, `outside_scope`), so it only holds
+  what no rule explains; narrow it to `['reverse_charge', 'intra_community_supply']` to also hold
+  export and `outside_scope` zeros.
+- **`invoices:held`** lists held invoices and ones stuck in `sending`; **`invoices:release
+  {number}`** sends one as it is, logged, and refuses one that was already sent.
 - **Exactly one mail per invoice.** New table `invoice_deliveries` records sent and held invoices;
-  a repeated `InvoiceIssued` or a second `InvoiceDelivery::send()` sends nothing, a failed attempt
-  leaves the way open for the next one.
+  a repeated `InvoiceIssued`, a second `InvoiceDelivery::send()` or a concurrent attempt that loses
+  the claim sends nothing, a failed attempt leaves the way open for the next one.
 - On email-templates before 2.8 (no registry) the mail is offered to `email-templates:import` as a
   tagged source, the way statamic-entitlements does it.
 
@@ -29,9 +34,8 @@ second path next to it.
 
 - **Run the migration** (`invoice_deliveries`). Without it, delivery fails and is logged; no
   invoice is lost, but none is sent.
-- **Check `delivery.zero_tax_guard.accept` if you sell into third countries.** Export and
-  `outside_scope` are not accepted by default, so such an invoice is now held. If 0 % there is your
-  decision, add them.
+- Nothing that went out before is held by default. To have the guard stop export and
+  `outside_scope` zeros you never decided on, narrow `delivery.zero_tax_guard.accept`.
 - The built-in mail gains the "Leistung" row; its wording is otherwise unchanged. A published copy
   of the view (`invoices-views`) does not get it by itself; `$produkt` is passed to it.
 - Template placeholders grew by `product` and `portal_url`. Existing entries are not touched.

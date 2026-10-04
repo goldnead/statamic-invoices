@@ -206,7 +206,7 @@ path cannot reach around that, because it only ever receives an invoice somebody
     'reply_to_name' => null,                  // INVOICES_MAIL_REPLY_TO_NAME
     'zero_tax_guard' => [
         'enabled' => true,                    // INVOICES_HOLD_UNEXPECTED_ZERO_TAX
-        'accept' => ['reverse_charge', 'intra_community_supply'],
+        'accept' => ['reverse_charge', 'intra_community_supply', 'export', 'outside_scope'],
     ],
 ],
 ```
@@ -216,7 +216,11 @@ invoice row itself cannot change). The row is claimed before the mail is built, 
 `invoice_id` lets exactly one attempt through: an event that arrives twice sends once. An attempt
 that fails (the renderer, the mail server) removes its claim, so the next one can send. A process
 that dies mid-send leaves the claim in `sending`; that invoice is not sent again by itself, because
-nobody can tell whether the first one arrived.
+nobody can tell whether the first one arrived. The same holds for a mail server that accepted the
+message and then timed out before it answered: the attempt counts as failed, its claim is
+released, and the next attempt sends a second copy. That is the one case where a buyer can get the
+invoice twice; it is preferred over the opposite failure, a buyer who never gets it.
+`php artisan invoices:held` lists invoices stuck in `sending` together with the held ones.
 
 **The covering letter names what was bought**, word for word as the invoice lines do, and carries
 the `Reply-To` you set (also on the settings screen).
@@ -232,18 +236,35 @@ a video session. **This decides no tax question.** It compares the document with
 configuration and stops it before the buyer has it, because an invoice in a mailbox can only be
 cancelled.
 
-`accept` lists the rules (`TaxResult::MECHANISM_*`) whose zero you have decided. Reverse charge and
-the intra-community supply only arise on a VAT ID the register confirmed, so they are accepted by
-default. `export` and `outside_scope` are not: add them if that is your decision. Lines written
-before the `tax_mechanism` column existed store no rule; for them only the § 19 switch counts.
+`accept` lists the rules (`TaxResult::MECHANISM_*`) whose zero you have decided. **By default it is
+all four that `TaxRules` applies by itself**, so upgrading stops no invoice that went out before;
+held is only a zero no rule explains, such as a line written before the `tax_mechanism` column
+existed (for those only the § 19 switch counts). **Narrow it to make the guard bite.** Export and
+`outside_scope` follow from a buyer's country and the `digital` flag of a product, not from a
+decision of yours. A site that never decided to sell tax-free abroad keeps only what stands on a VAT
+ID the register confirmed:
+
+```php
+'accept' => ['reverse_charge', 'intra_community_supply'],
+```
+
+The tax class is looked up as `TaxRules` looks it up, so with `tax.default_product_class` set,
+every product has a rated class, including one you never listed.
 
 A held invoice is not sent, now or on a retry. It is logged at `error` with the message
 `invoices: invoice held back, zero tax where the product's tax class carries a rate` (the lines,
 their class and rule, and what to do), recorded in `invoice_deliveries` with status `held` and
 reason `unexpected_zero_tax`, and, where statamic-payments keeps a communication log, noted on the
 payment as a failed invoice mail with `held` in its details. The way out: clarify the tax question,
-cancel with `Invoices::creditNoteFor()`, fix the configuration, write it again. To send it as it is,
-delete its row in `invoice_deliveries` and call `InvoiceDelivery::send()`.
+cancel with `Invoices::creditNoteFor()`, fix the configuration, write it again. To send it as it is:
+
+```bash
+php artisan invoices:held               # held and stuck invoices
+php artisan invoices:release RE-2026-10-001
+```
+
+`invoices:release` sends without asking the guard again, logs the decision at `warning`, and refuses
+an invoice that was already sent. A release that does not get the mail out keeps the invoice held.
 
 The mail leaves through brand-context's `BrandMailer`, which decides **who it comes from**:
 
@@ -415,7 +436,8 @@ document and says how many it derived.
   should land in the buyer's inbox on its own, or beside the refund the provider already announced,
   is a decision the host has to make.
 - **Re-sending by hand.** A delivery that fails is logged with the invoice number and the reason;
-  there is no `invoices:send` yet, and no screen that releases a held invoice.
+  there is no `invoices:send` yet. A held invoice is released on the command line
+  (`invoices:release`), not in the Control Panel.
 - **The OSS threshold.** Below €10,000 of annual turnover into other EU countries the seller's own
   rate applies; above it, the recipient's. That is a state over time and needs a turnover figure,
   which is a bookkeeping question rather than a per-line one. The seam is named in the code, and the
