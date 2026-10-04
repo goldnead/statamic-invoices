@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.0 — 2026-10-04
 
 Proposed version 2.7.0: a new command, new config keys and a migration, so more than a patch.
 
