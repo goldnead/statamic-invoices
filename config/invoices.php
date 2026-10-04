@@ -125,10 +125,38 @@ return [
         // The slug of the mail in goldnead/statamic-email-templates. Where that
         // addon is installed and has an entry under this slug, the entry writes
         // subject and text (placeholders: buyer.name, buyer.email,
-        // invoice.number, invoice.date, amount, seller.name, site_name) and the
-        // PDF is still attached. Without an entry, or without the addon, the
-        // built-in mail above is sent unchanged. Null or '' turns it off.
+        // invoice.number, invoice.date, amount, seller.name, site_name, product,
+        // portal_url) and the PDF is still attached. Without an entry, or
+        // without the addon, the built-in mail above is sent unchanged. Null or
+        // '' turns it off. On email-templates before 2.8 the mail is offered to
+        // `email-templates:import` instead of the registry.
         'template' => env('INVOICES_MAIL_TEMPLATE', 'invoices-invoice'),
+
+        // Where the buyer's answer goes. Empty sets no Reply-To, and an answer
+        // goes to the sender.
+        'reply_to' => env('INVOICES_MAIL_REPLY_TO'),
+        'reply_to_name' => env('INVOICES_MAIL_REPLY_TO_NAME'),
+
+        // Holds back an invoice with 0 % on a line whose product has a tax
+        // class that carries a rate (not an exemption, not § 19), where the
+        // zero came from a cross-border rule rather than from that class. It
+        // decides no tax question; it stops a document that contradicts this
+        // configuration before the buyer has it. Held invoices are logged
+        // ("invoices: invoice held back, ..."), recorded in invoice_deliveries
+        // and, with statamic-payments' log, shown on the payment.
+        //
+        // `accept` lists the rules whose zero counts as decided (values of
+        // TaxResult::MECHANISM_*). By default every rule TaxRules applies by
+        // itself, so an upgrade stops nothing that went out before; held is
+        // what no rule explains (a line without a stored rule, outside § 19).
+        // Narrow it to hold more: export and outside_scope follow from a
+        // country and the `digital` flag of a product, and a site that never
+        // decided to sell tax-free abroad takes them out, e.g.
+        // ['reverse_charge', 'intra_community_supply'].
+        'zero_tax_guard' => [
+            'enabled' => env('INVOICES_HOLD_UNEXPECTED_ZERO_TAX', true),
+            'accept' => ['reverse_charge', 'intra_community_supply', 'export', 'outside_scope'],
+        ],
     ],
 
     /*

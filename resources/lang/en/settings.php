@@ -108,6 +108,18 @@ return [
             'label' => 'File name',
             'description' => ':number is replaced by the invoice number.',
         ],
+        'delivery_reply_to' => [
+            'label' => 'Reply-to address',
+            'description' => 'Where the buyer\'s answer goes. Empty means no reply-to of its own; the answer goes to the sender.',
+        ],
+        'delivery_reply_to_name' => [
+            'label' => 'Name for the reply-to address',
+            'description' => 'Optional, such as the name of the person who answers questions about the invoice.',
+        ],
+        'delivery_zero_tax_guard_enabled' => [
+            'label' => 'Hold back an invoice whose zero tax nobody decided',
+            'description' => 'On means an invoice with 0 % on a line whose tax class carries a rate is not sent; it is logged and noted on the payment. Which rules count as decided is set in delivery.zero_tax_guard.accept.',
+        ],
 
         'tax_small_business_enabled' => [
             'label' => 'Apply the small business scheme',

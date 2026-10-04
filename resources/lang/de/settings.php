@@ -108,6 +108,18 @@ return [
             'label' => 'Dateiname',
             'description' => ':number wird durch die Rechnungsnummer ersetzt.',
         ],
+        'delivery_reply_to' => [
+            'label' => 'Antwortadresse (Reply-To)',
+            'description' => 'Wohin die Antwort des Kaeufers geht. Leer heisst: keine eigene Antwortadresse, die Antwort geht an den Absender.',
+        ],
+        'delivery_reply_to_name' => [
+            'label' => 'Name zur Antwortadresse',
+            'description' => 'Optional, etwa der Name der Person, die Fragen zur Rechnung beantwortet.',
+        ],
+        'delivery_zero_tax_guard_enabled' => [
+            'label' => 'Rechnung ohne entschiedene Nullsteuer zurueckhalten',
+            'description' => 'An heisst: eine Rechnung mit 0 % auf einer Position, deren Steuerklasse einen Satz traegt, geht nicht raus, sondern wird protokolliert und an der Zahlung vermerkt. Welche Regeln als entschieden gelten, steht in delivery.zero_tax_guard.accept.',
+        ],
 
         'tax_small_business_enabled' => [
             'label' => 'Kleinunternehmerregelung anwenden',

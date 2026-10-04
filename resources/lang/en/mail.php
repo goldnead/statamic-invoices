@@ -16,7 +16,7 @@ return [
     'trigger' => 'An invoice was written and goes to the buyer with its PDF',
     'subject' => 'Your invoice {{ invoice.number }}',
     'body' => '<p>Hello {{ buyer.name }},</p>'
-        .'<p>attached is your invoice {{ invoice.number }} of {{ invoice.date }} for {{ amount }} as a PDF.</p>'
+        .'<p>attached is your invoice {{ invoice.number }} of {{ invoice.date }} for {{ amount }} for {{ product }} as a PDF.</p>'
         .'<p>Please keep it. It is also your receipt for the payment.</p>'
         .'<p>Kind regards<br>{{ seller.name }}</p>',
 
@@ -28,5 +28,7 @@ return [
         'amount' => 'Gross amount with currency',
         'seller_name' => 'Seller\'s name as it appears on the invoice',
         'site_name' => 'Name of the website',
+        'product' => 'What was bought: the invoice lines, separated by commas',
+        'portal_url' => 'Sign-in page of the customer account where the invoice can be downloaded (empty without a customer account)',
     ],
 ];

@@ -41,6 +41,15 @@ class InvoiceMail extends Mailable
             $this->from(...$this->fallbackSender());
         }
 
+        // Where an answer goes, if the site named an address. Empty sets none,
+        // and the answer goes to the sender as before.
+        $replyTo = trim((string) config('invoices.delivery.reply_to'));
+
+        if ($replyTo !== '' && empty($this->replyTo)) {
+            $name = trim((string) config('invoices.delivery.reply_to_name'));
+            $this->replyTo($replyTo, $name !== '' ? $name : null);
+        }
+
         // Eine Vorlage aus statamic-email-templates, wenn es für diese Mail
         // einen Eintrag gibt. Sonst die eingebaute Ansicht, unverändert.
         $vorlage = app(InvoiceMailTemplate::class)->render($this->invoice);
@@ -60,6 +69,8 @@ class InvoiceMail extends Mailable
                 'invoice' => $this->invoice,
                 'seller' => (array) ($this->invoice->seller ?? []),
                 'betrag' => Money::format($this->invoice->gross_cent, $this->invoice->currency),
+                // Was gekauft wurde, wortgleich wie auf der Rechnung.
+                'produkt' => InvoiceMailTemplate::product($this->invoice),
                 // Wie die Marke aussieht. Das LOGO wird nicht hier eingebettet,
                 // sondern in der Vorlage ueber `$message->embed(...)` — das ist
                 // Laravels Weg, und `embed()` gibt es nur dort, nicht auf dem

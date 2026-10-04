@@ -7,6 +7,7 @@ use Goldnead\Invoices\Mail\InvoiceMail;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Support\DisplayTime;
 use Goldnead\Invoices\Support\Money;
+use Illuminate\Support\Facades\Route;
 use Throwable;
 
 /**
@@ -46,7 +47,11 @@ class InvoiceMailTemplate
         'amount' => '119,00 €',
         'seller.name' => 'Nordlicht Studio',
         'site_name' => 'Nordlicht Studio',
+        'product' => 'Chorleitungskurs',
+        'portal_url' => 'https://example.com/!/statamic-payments/konto/anmelden',
     ];
+
+    public const SOURCE_CONTRACT = '\Goldnead\EmailTemplates\Contracts\EmailTemplateSource';
 
     public function slug(): string
     {
@@ -57,12 +62,27 @@ class InvoiceMailTemplate
 
     /**
      * Bei der Registry anmelden, wenn es sie gibt. Wahr, wenn angemeldet.
+     *
+     * Ein email-templates vor 2.8 hat keine Registry, aber den Import aus
+     * markierten Quellen: dann meldet sich die Mail dort als
+     * {@see TemplateSource} an, und `email-templates:import` legt den Eintrag
+     * an. Nie beides, sonst sähe der Import dieselbe Vorlage zweimal.
      */
     public function register(): bool
     {
         $slug = $this->slug();
 
-        if ($slug === '' || ! app()->bound(self::REGISTRY)) {
+        if ($slug === '') {
+            return false;
+        }
+
+        if (! app()->bound(self::REGISTRY)) {
+            if (interface_exists(self::SOURCE_CONTRACT)) {
+                app()->tag([TemplateSource::class], 'email-templates.sources');
+
+                return true;
+            }
+
             return false;
         }
 
@@ -164,7 +184,47 @@ class InvoiceMailTemplate
             'amount' => Money::format($invoice->gross_cent, $invoice->currency),
             'seller' => ['name' => (string) ($seller['name'] ?? '')],
             'site_name' => (string) config('app.name'),
+            'product' => static::product($invoice),
+            'portal_url' => static::portalUrl(),
         ];
+    }
+
+    /**
+     * Was gekauft wurde, wortgleich wie auf der Rechnung: die Namen der
+     * Positionen, mit Komma getrennt, jeder einmal. Kein zweiter Blick in den
+     * Katalog. Nennt die Mail etwas anderes als das Dokument, ist eines von
+     * beiden falsch.
+     */
+    public static function product(Invoice $invoice): string
+    {
+        $names = [];
+
+        foreach ($invoice->items as $line) {
+            $name = trim((string) $line->name);
+
+            if ($name !== '' && ! in_array($name, $names, true)) {
+                $names[] = $name;
+            }
+        }
+
+        return implode(', ', $names);
+    }
+
+    /**
+     * Der Weg ins Kundenkonto von statamic-payments, wo die Rechnung zum
+     * Herunterladen liegt. Die Anmeldeseite, kein signierter Link: eine
+     * Rechnungsmail liegt Jahre im Postfach, ein Zugang darin wäre ein
+     * Geheimnis, das so lange gilt. Leer, wo es das Konto nicht gibt.
+     */
+    public static function portalUrl(): string
+    {
+        try {
+            return Route::has('statamic-payments.portal.request')
+                ? (string) route('statamic-payments.portal.request')
+                : '';
+        } catch (Throwable) {
+            return '';
+        }
     }
 
     /**
