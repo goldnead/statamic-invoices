@@ -13,7 +13,7 @@ return [
 
         'seller' => [
             'title' => 'Seller',
-            'description' => 'Who is issuing the invoice. These details are frozen onto every document as it is written and cannot be corrected afterwards — a German invoice without them is not an invoice (§ 14 UStG). On a multi-brand host what is set here applies to the brand in the switcher, which makes `seller_per_brand` in config/invoices.php redundant.',
+            'description' => 'Who is issuing the invoice. These details are frozen onto every document as it is written and cannot be corrected afterwards — a German invoice without them is not an invoice (§ 14 UStG). On a multi-brand host what is set here applies to the brand in the switcher, which makes `seller_per_brand` in config/invoices.php redundant. Every value on this page also applies to console and scheduled runs (`invoices:*`): on a multi-brand host each command runs once per brand with that brand\'s values.',
         ],
 
         'number' => [

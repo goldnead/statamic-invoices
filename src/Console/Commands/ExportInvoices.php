@@ -2,13 +2,18 @@
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\BrandContext\Models\Brand;
+use Goldnead\Invoices\Console\Concerns\RunsPerBrand;
+use Goldnead\Invoices\Export\ArchiveStore;
 use Goldnead\Invoices\Export\CsvExport;
 use Goldnead\Invoices\Export\CsvFormat;
+use Goldnead\Invoices\Export\Documents;
 use Goldnead\Invoices\Export\PdfArchive;
 use Goldnead\Invoices\Export\Period;
 use Goldnead\Invoices\Export\TaxReport;
 use Goldnead\Invoices\Jobs\BuildPdfArchive;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use InvalidArgumentException;
 use Throwable;
 
@@ -26,6 +31,8 @@ use Throwable;
  */
 class ExportInvoices extends Command
 {
+    use RunsPerBrand;
+
     protected $signature = 'invoices:export
         {what : csv, report or pdf}
         {--from= : Erster Tag, YYYY-MM-DD}
@@ -33,7 +40,7 @@ class ExportInvoices extends Command
         {--month= : Ein Monat, YYYY-MM}
         {--quarter= : Ein Quartal, YYYY-Q1 bis YYYY-Q4}
         {--year= : Ein Jahr, YYYY}
-        {--brand= : Nur die Belege dieser Marke (ID)}
+        {--brand= : Nur die Belege dieser Marke (Handle oder ID); ohne sie läuft jede Marke für sich}
         {--delimiter= : ; , oder tab}
         {--encoding= : utf-8-bom, utf-8 oder windows-1252}
         {--decimal= : , oder .}
@@ -59,8 +66,35 @@ class ExportInvoices extends Command
             return self::FAILURE;
         }
 
-        $brand = $this->option('brand');
-        $brandId = is_numeric($brand) ? (int) $brand : null;
+        if ($this->refusesStandardOutput()) {
+            $this->components->error(
+                'Auf einem Mehrmarken-Host gehört ein CSV auf Standardausgabe zu genau einer Marke: '
+                .'--brand=<Handle oder ID> angeben, oder --output=datei.csv (dann entsteht eine Datei je Marke).'
+            );
+
+            return self::FAILURE;
+        }
+
+        try {
+            $exit = $this->forEveryBrand(fn (?Brand $brand) => $this->export($period, $format, $brand));
+        } catch (ModelNotFoundException) {
+            $this->components->error(sprintf('Die Marke "%s" gibt es nicht.', (string) $this->option('brand')));
+
+            return self::FAILURE;
+        }
+
+        return $this->unbrandedDocuments($period) ? self::FAILURE : $exit;
+    }
+
+    /**
+     * One export, for one brand on a multi-brand host and for everything on a
+     * single-brand one. Run inside the brand, so the tax report reads that
+     * brand's merchant country and the texts it saved, not the package's.
+     */
+    private function export(Period $period, CsvFormat $format, ?Brand $brand): int
+    {
+        $option = $this->option('brand');
+        $brandId = $brand->id ?? (is_numeric($option) ? (int) $option : null);
 
         try {
             return match ($this->argument('what')) {
@@ -76,9 +110,85 @@ class ExportInvoices extends Command
         }
     }
 
-    private function csv(Period $period, CsvFormat $format, ?int $brandId): int
+    /** Several brands at once: each gets its own file, named like the archives (`_marke-2`). */
+    private function suffixesOutput(): bool
+    {
+        return $this->multiBrandActive() && ! $this->option('brand');
+    }
+
+    /** A CSV on standard output cannot be several brands' CSVs one after the other. */
+    private function refusesStandardOutput(): bool
+    {
+        return $this->argument('what') === 'csv'
+            && ! $this->hasOutput()
+            && $this->suffixesOutput()
+            && Brand::query()->count() > 1;
+    }
+
+    private function hasOutput(): bool
     {
         $output = $this->option('output');
+
+        return is_string($output) && $output !== '';
+    }
+
+    /** The target file for this brand: `belege.csv` becomes `belege_marke-2.csv` when several brands are written. */
+    private function outputFor(?int $brandId): ?string
+    {
+        if (! $this->hasOutput()) {
+            return null;
+        }
+
+        $output = (string) $this->option('output');
+
+        if (! $this->suffixesOutput() || $brandId === null) {
+            return $output;
+        }
+
+        $parts = pathinfo($output);
+        $stem = str_contains($output, '/') ? $parts['dirname'].'/'.$parts['filename'] : $parts['filename'];
+
+        return $stem.ArchiveStore::brandSuffix($brandId).(isset($parts['extension']) ? '.'.$parts['extension'] : '');
+    }
+
+    /** CSV on standard output has no "Brand: x" line in front of the data. */
+    protected function shouldAnnounceBrand(): bool
+    {
+        return ! ($this->argument('what') === 'csv' && ! $this->hasOutput());
+    }
+
+    /**
+     * Documents that no brand run reached.
+     *
+     * An invoice whose `brand_id` names no brand (or `0` on a host that has
+     * since turned multi-brand on) is in no per-brand export. A tax export that
+     * leaves a document out without saying so is worse than none, so it says so
+     * and fails.
+     */
+    private function unbrandedDocuments(Period $period): bool
+    {
+        if (! $this->multiBrandActive() || $this->option('brand')) {
+            return false;
+        }
+
+        $count = Documents::query($period)->whereNotIn('brand_id', Brand::query()->pluck('id'))->count();
+
+        if ($count === 0) {
+            return false;
+        }
+
+        $this->components->warn(sprintf(
+            '%d Belege dieses Zeitraums gehören zu keiner Marke und stehen in keinem der Exporte. '
+            .'Mit invoices:brand-check suchen, dann von Hand zuordnen.',
+            $count,
+        ));
+
+        return true;
+    }
+
+    private function csv(Period $period, CsvFormat $format, ?int $brandId): int
+    {
+        $output = $this->outputFor($brandId);
         $stream = is_string($output) && $output !== '' ? fopen($output, 'wb') : fopen('php://stdout', 'wb');
 
         if ($stream === false) {
@@ -100,7 +210,7 @@ class ExportInvoices extends Command
     private function report(Period $period, CsvFormat $format, ?int $brandId): int
     {
         $report = TaxReport::for($period, $brandId);
-        $output = $this->option('output');
+        $output = $this->outputFor($brandId);
 
         if (is_string($output) && $output !== '') {
             $stream = fopen($output, 'wb');
@@ -162,7 +272,7 @@ class ExportInvoices extends Command
             return self::SUCCESS;
         }
 
-        $output = $this->option('output');
+        $output = $this->outputFor($brandId);
 
         if (! is_string($output) || $output === '') {
             $this->components->error('Für ein PDF-Archiv braucht es --output=datei.zip oder --queue.');

@@ -29,6 +29,11 @@ use Illuminate\Support\Facades\Schema;
  *
  * The exit code is non-zero when there are findings, so that a scheduled run
  * says so without anybody reading its output.
+ *
+ * **Not per brand, on purpose.** It reads no brand setting, and its subject is
+ * the mismatch *between* brands: a run per brand would print the same table
+ * once for each, or (cut to the payment's brand) lose the payments that belong
+ * to no brand, which are exactly the case it exists to find.
  */
 class BrandCheck extends Command
 {

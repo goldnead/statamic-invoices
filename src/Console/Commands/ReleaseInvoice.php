@@ -2,6 +2,9 @@
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\BrandContext\Facades\BrandContext;
+use Goldnead\BrandContext\Models\Brand;
+use Goldnead\Invoices\Console\Concerns\RunsPerBrand;
 use Goldnead\Invoices\Delivery\InvoiceDelivery;
 use Goldnead\Invoices\Models\DeliveryRecord;
 use Goldnead\Invoices\Models\Invoice;
@@ -17,10 +20,17 @@ use Throwable;
  */
 class ReleaseInvoice extends Command
 {
+    use RunsPerBrand;
+
     protected $signature = 'invoices:release {number : Die Rechnungsnummer}';
 
     protected $description = 'Send a held invoice as it is.';
 
+    /**
+     * The send runs as the invoice's brand, not as nobody: subject, file name
+     * and the rest of the delivery settings are that brand's saved ones. The
+     * number is unique across brands, so it names exactly one invoice.
+     */
     public function handle(InvoiceDelivery $delivery): int
     {
         $number = (string) $this->argument('number');
@@ -31,6 +41,21 @@ class ReleaseInvoice extends Command
 
             return self::FAILURE;
         }
+
+        // brand_id 0 (written before multi-brand was switched on) belongs to the
+        // default brand, as in forBrand(); otherwise the send would use package values.
+        $brand = $this->multiBrandActive()
+            ? (Brand::query()->find($invoice->brand_id) ?? ((int) $invoice->brand_id === 0 ? Brand::default() : null))
+            : null;
+
+        return $brand !== null
+            ? (int) BrandContext::runFor($brand, fn () => $this->release($delivery, $invoice))
+            : $this->release($delivery, $invoice);
+    }
+
+    private function release(InvoiceDelivery $delivery, Invoice $invoice): int
+    {
+        $number = (string) $invoice->number;
 
         $status = DeliveryRecord::query()->where('invoice_id', $invoice->getKey())->value('status');
 

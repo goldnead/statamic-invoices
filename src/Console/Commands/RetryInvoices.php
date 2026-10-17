@@ -2,6 +2,8 @@
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\BrandContext\Models\Brand;
+use Goldnead\Invoices\Console\Concerns\RunsPerBrand;
 use Goldnead\Invoices\Delivery\InvoiceDelivery;
 use Goldnead\Invoices\Models\DeliveryRecord;
 use Illuminate\Console\Command;
@@ -19,11 +21,24 @@ use Throwable;
  */
 class RetryInvoices extends Command
 {
-    protected $signature = 'invoices:retry';
+    use RunsPerBrand;
+
+    protected $signature = 'invoices:retry
+        {--brand= : Only this brand (handle or ID)}';
 
     protected $description = 'Try invoice mails that failed again (bounded, with backoff).';
 
+    /**
+     * Once per brand on a multi-brand host: whether delivery is on, the
+     * subject, the file name and the retry gap are the brand's saved settings.
+     * The rows are those of invoices of that brand.
+     */
     public function handle(InvoiceDelivery $delivery): int
+    {
+        return $this->forEveryBrand(fn (?Brand $brand) => $this->process($delivery, $brand));
+    }
+
+    protected function process(InvoiceDelivery $delivery, ?Brand $brand): int
     {
         if (! config('invoices.delivery.enabled', true)) {
             return self::SUCCESS;
@@ -31,6 +46,10 @@ class RetryInvoices extends Command
 
         $rows = DeliveryRecord::query()
             ->where('status', DeliveryRecord::STATUS_FAILED)
+            ->when($brand !== null, fn ($q) => $q->whereHas(
+                'invoice',
+                fn ($invoice) => $this->forBrand($invoice, $brand),
+            ))
             ->with('invoice.items')
             ->orderBy('id')
             ->get()

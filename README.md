@@ -474,6 +474,14 @@ Periods: `--from/--to`, `--month`, `--quarter`, `--year`, in the application's t
 written before 2.2 carry no mechanism and place of supply; the export derives both from the
 document and says how many it derived.
 
+**Console and scheduled runs on a multi-brand host.** `invoices:pending`, `invoices:retry`,
+`invoices:recheck-vat-ids` and `invoices:export` run once per brand, on that brand's rows and with
+the settings saved for it (seller, delivery, tax); `--brand=<handle or id>` restricts a run to one.
+`invoices:release` sends under the invoice's own brand. `invoices:brand-check` and `invoices:held`
+stay cross-brand on purpose. Without `--output` a CSV on standard output needs `--brand`; with
+`--output=belege.csv` every brand gets its own file (`belege_marke-2.csv`). Single-brand installs
+are unaffected.
+
 ## What it deliberately does not do
 
 - **Bookkeeping, a native DATEV EXTF batch, dunning.** The CSV imports into bookkeeping software;

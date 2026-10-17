@@ -13,7 +13,7 @@ return [
 
         'seller' => [
             'title' => 'Verkaeufer',
-            'description' => 'Wer die Rechnung stellt. Diese Angaben werden beim Ausstellen auf jedes Dokument eingefroren und lassen sich danach nicht mehr korrigieren — eine Rechnung ohne sie ist nach § 14 UStG keine Rechnung. Auf einem Mehrmarken-Host gilt, was hier steht, fuer die Marke im Markenwaehler; `seller_per_brand` in config/invoices.php wird dadurch ueberfluessig.',
+            'description' => 'Wer die Rechnung stellt. Diese Angaben werden beim Ausstellen auf jedes Dokument eingefroren und lassen sich danach nicht mehr korrigieren — eine Rechnung ohne sie ist nach § 14 UStG keine Rechnung. Auf einem Mehrmarken-Host gilt, was hier steht, fuer die Marke im Markenwaehler; `seller_per_brand` in config/invoices.php wird dadurch ueberfluessig. Alle Werte dieser Seite gelten auch fuer Konsolen- und Zeitplanlaeufe (`invoices:*`): auf einem Mehrmarken-Host laeuft jeder Befehl einmal je Marke mit deren Werten.',
         ],
 
         'number' => [

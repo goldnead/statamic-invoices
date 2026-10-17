@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\BrandContext\Models\Brand;
+use Goldnead\Invoices\Console\Concerns\RunsPerBrand;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Models\VatIdCheckRecord;
 use Goldnead\Invoices\Support\BuyerAdmission;
@@ -27,14 +29,28 @@ use Illuminate\Console\Command;
  */
 class RecheckVatIds extends Command
 {
+    use RunsPerBrand;
+
     protected $signature = 'invoices:recheck-vat-ids
-        {--limit=100 : How many outstanding invoices to look at in one run}';
+        {--limit=100 : How many outstanding invoices to look at in one run, per brand}
+        {--brand= : Only this brand (handle or ID)}';
 
     protected $description = 'Ask the confirmation service again about VAT IDs that were still pending when the invoice was written';
 
-    public function handle(BuyerAdmission $admission): int
+    /**
+     * Once per brand on a multi-brand host. The admission object is built from
+     * the brand's own `tax` settings (the seller's VAT ID that asks, the
+     * timeout, whether to check at all), so it is resolved inside the loop:
+     * one resolved before it would carry the first brand's values into the rest.
+     */
+    public function handle(): int
     {
-        $invoices = Invoice::query()
+        return $this->forEveryBrand(fn (?Brand $brand) => $this->process(app(BuyerAdmission::class), $brand));
+    }
+
+    protected function process(BuyerAdmission $admission, ?Brand $brand): int
+    {
+        $invoices = $this->forBrand(Invoice::query(), $brand)
             ->awaitingVatIdConfirmation()
             ->orderBy('issued_at')
             ->limit(max(1, (int) $this->option('limit')))
