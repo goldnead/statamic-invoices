@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.8.0 — 2026-10-18
+
+Proposed version 2.8.0: console commands change behaviour on multi-brand hosts and gain `--brand`.
+
+### Fixed
+
+- **Console and scheduled runs saw package values, not the settings saved on the settings page.**
+  With no brand current, `invoices:pending` wrote an invoice with the package's (usually empty)
+  seller instead of the brand's saved one, and `invoices:retry`, `invoices:recheck-vat-ids` and
+  `invoices:export` read the package's delivery, tax and text settings. On a multi-brand host these
+  commands now run once per brand, on that brand's rows only, with that brand's saved settings.
+  `--brand=<handle or id>` restricts a run to one brand. A failing brand does not stop the next;
+  the exit code is the first failure. Single-brand installs are unaffected.
+- `invoices:release` sends under the invoice's own brand (an invoice with `brand_id` 0 goes with the
+  default brand), so subject and file name are that brand's saved ones.
+- Jobs queued from these commands (`invoices:export pdf --queue`) now carry the brand and see the
+  saved settings in the worker.
+
+### Changed
+
+- `invoices:export` on a multi-brand host without `--brand`: one export per brand; with `--output`
+  each brand gets its own file (`belege.csv` becomes `belege_marke-2.csv`); a CSV on standard output
+  needs `--brand`. Documents whose `brand_id` names no brand are reported and the exit code is 1.
+- `invoices:brand-check` and `invoices:held` stay cross-brand on purpose.
+- The settings page says that its values also apply to console and scheduled runs.
+
 ## 2.7.1 — 2026-10-17
 
 ### Fixed

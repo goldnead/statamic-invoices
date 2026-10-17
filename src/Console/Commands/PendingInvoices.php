@@ -2,6 +2,8 @@
 
 namespace Goldnead\Invoices\Console\Commands;
 
+use Goldnead\BrandContext\Models\Brand;
+use Goldnead\Invoices\Console\Concerns\RunsPerBrand;
 use Goldnead\Invoices\Exceptions\DetailsMissing;
 use Goldnead\Invoices\Exceptions\InvoiceNotWritten;
 use Goldnead\Invoices\Exceptions\NumberAlreadyTaken;
@@ -28,13 +30,28 @@ use Illuminate\Support\Facades\Log;
  */
 class PendingInvoices extends Command
 {
-    protected $signature = 'invoices:pending {--write : Die schreiben, die sich schreiben lassen}';
+    use RunsPerBrand;
+
+    protected $signature = 'invoices:pending
+        {--write : Die schreiben, die sich schreiben lassen}
+        {--brand= : Nur diese Marke (Handle oder ID)}';
 
     protected $description = 'Paid payments without an invoice, and what is missing.';
 
+    /**
+     * Once per brand on a multi-brand host: the seller and the number series
+     * come from the brand's saved settings, and a console run has none of its
+     * own. The payments are cut to the brand, or brand B's settings would write
+     * brand A's invoice.
+     */
     public function handle(InvoiceWriter $writer): int
     {
-        $ohne = Payment::query()
+        return $this->forEveryBrand(fn (?Brand $brand) => $this->process($writer, $brand));
+    }
+
+    protected function process(InvoiceWriter $writer, ?Brand $brand): int
+    {
+        $ohne = $this->forBrand(Payment::query(), $brand)
             ->where('status', Payment::STATUS_PAID)
             ->whereNotIn('id', Invoice::query()->whereNotNull('payment_id')->pluck('payment_id'))
             ->with('items')

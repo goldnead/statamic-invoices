@@ -11,6 +11,10 @@ use Illuminate\Console\Command;
  * and waiting for `invoices:retry`, or `failed_final` (out of attempts).
  *
  * All but `failed` need a person. `invoices:release {number}` sends one as it is.
+ *
+ * One list across all brands, on purpose: it only reads rows and no brand
+ * setting, and a held invoice must not be missable because it sits under a
+ * brand heading nobody scrolled to.
  */
 class HeldInvoices extends Command
 {
