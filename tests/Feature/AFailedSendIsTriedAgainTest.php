@@ -405,14 +405,38 @@ class AFailedSendIsTriedAgainTest extends TestCase
         $this->assertSame(DeliveryRecord::STATUS_HELD, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('status'));
     }
 
-    #[Test]
-    public function the_scheduler_runs_retry_unless_switched_off(): void
+    /**
+     * Statamic ruft im Boot-Zug `bootSchedule()` und damit `schedule()` jedes
+     * Addons auf; `bootAddon()` laeuft ausserdem. Zusammen darf der Befehl
+     * genau einmal im Zeitplan stehen (Staging zeigte ihn zweimal, weil das
+     * Addon `bootSchedule()` ueberschrieb und selbst noch einmal rief).
+     * Im Testbench-Boot laeuft Statamics Zug nicht, deshalb wird er hier gerufen.
+     */
+    private function retryImZeitplan(): int
     {
-        $befehle = collect($this->app->make(Schedule::class)->events())
-            ->map(fn ($e) => $e->command)
-            ->filter(fn ($c) => str_contains((string) $c, 'invoices:retry'));
+        $this->app->instance(Schedule::class, $schedule = new Schedule);
 
-        $this->assertCount(1, $befehle);
+        $provider = $this->app->getProvider(ServiceProvider::class);
+        $provider->bootAddon();
+        (new \ReflectionMethod($provider, 'bootSchedule'))->invoke($provider);
+
+        return collect($schedule->events())
+            ->filter(fn ($e) => str_contains((string) $e->command, 'invoices:retry'))
+            ->count();
+    }
+
+    #[Test]
+    public function the_scheduler_runs_retry_exactly_once(): void
+    {
+        $this->assertSame(1, $this->retryImZeitplan());
+    }
+
+    #[Test]
+    public function the_scheduler_does_not_run_retry_when_switched_off(): void
+    {
+        config()->set('invoices.delivery.retry.schedule', false);
+
+        $this->assertSame(0, $this->retryImZeitplan());
     }
 
     // ── Anrede ───────────────────────────────────────────────────────────────

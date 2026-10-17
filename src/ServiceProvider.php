@@ -123,28 +123,25 @@ class ServiceProvider extends AddonServiceProvider
             ->bootSettings()
             ->bootPermissions()
             ->bootUtility()
-            ->bootSchedule()
             ->bootPublishing();
     }
 
     /**
      * `invoices:retry` on the host's scheduler, every five minutes.
      *
-     * Registered here so a site does not have to remember it, and switchable
-     * (`delivery.retry.schedule`) for a host that schedules it itself. It only
-     * does something where the host runs `schedule:run` at all.
+     * Statamic's own boot chain calls `bootSchedule()` and hands every addon its
+     * `schedule()` hook (console only). Do not override `bootSchedule()` and call
+     * it from `bootAddon()` as well: that registered the command twice.
+     *
+     * Switchable (`delivery.retry.schedule`) for a host that schedules it itself.
      */
-    protected function bootSchedule(): self
+    protected function schedule(Schedule $schedule): void
     {
-        $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
-            if (! config('invoices.delivery.retry.schedule', true)) {
-                return;
-            }
+        if (! config('invoices.delivery.retry.schedule', true)) {
+            return;
+        }
 
-            $schedule->command('invoices:retry')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
-        });
-
-        return $this;
+        $schedule->command('invoices:retry')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
     }
 
     /**

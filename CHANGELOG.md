@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.1 — 2026-10-17
+
+### Fixed
+
+- **`invoices:retry` stood twice in the schedule.** The addon overrode `bootSchedule()` of
+  Statamic's `AddonServiceProvider` and also called it from `bootAddon()`, so Statamic's own boot
+  chain registered the command a second time. It now uses the `schedule()` hook only, once.
+  `delivery.retry.schedule = false` still switches it off.
+
 ## 2.7.0 — 2026-10-04
 
 Proposed version 2.7.0: a new command, new config keys and a migration, so more than a patch.
