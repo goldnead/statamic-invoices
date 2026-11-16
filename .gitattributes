@@ -14,3 +14,6 @@
 # Keep: /config, /database, /resources, /src, /art, README.md, CHANGELOG.md,
 # LICENSE.md. This addon has no Control Panel bundle to build, so there is no
 # /dist and nothing under /resources to leave behind.
+
+# Internal listing files: not needed by installing sites.
+/art                export-ignore
