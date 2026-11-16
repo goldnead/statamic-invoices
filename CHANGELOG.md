@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.1 — 2026-11-16
+
+### Changed
+
+- The package download no longer contains `art/` and `MARKETPLACE.md` (`export-ignore`). No code change, no migration, no new config key.
+
 ## 2.8.0 — 2026-10-18
 
 Proposed version 2.8.0: console commands change behaviour on multi-brand hosts and gain `--brand`.
