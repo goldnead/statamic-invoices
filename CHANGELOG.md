@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Service period of a subscription with a trial.** The payment taken at signup (free or `trial_amount_cent`) now states the trial (`trial_days`, from the day paid) as its service period instead of a full billing interval. The first paid cycle's invoice starts its period when the trial ends. No migration, no new config key; invoices already written are unchanged.
+
 ## 2.8.1 — 2026-11-16
 
 ### Changed
