@@ -117,6 +117,31 @@ class ServicePeriodTrialTest extends TestCase
     }
 
     #[Test]
+    public function a_trial_length_given_as_text_is_read_like_payments_reads_it(): void
+    {
+        config(['statamic-payments.products.probeabo.trial_days' => '14']);
+
+        $invoice = app(InvoiceWriter::class)->forPayment($this->payment('2026-11-10 10:00:00'));
+
+        $this->assertSame(['from' => '2026-11-10', 'to' => '2026-11-23'], $invoice->meta['service_period'] ?? null);
+    }
+
+    #[Test]
+    public function a_failed_earlier_payment_does_not_turn_the_signup_into_a_cycle(): void
+    {
+        $this->linkable();
+
+        $subscription = $this->subscription();
+        $this->payment('2026-11-10 09:00:00', ['status' => Payment::STATUS_FAILED, 'subscription_id' => $subscription->id]);
+
+        $invoice = app(InvoiceWriter::class)->forPayment(
+            $this->payment('2026-11-10 10:00:00', ['subscription_id' => $subscription->id])
+        );
+
+        $this->assertSame(['from' => '2026-11-10', 'to' => '2026-11-23'], $invoice->meta['service_period'] ?? null);
+    }
+
+    #[Test]
     public function a_plan_without_a_trial_keeps_a_full_first_period(): void
     {
         config(['statamic-payments.products.probeabo.trial_days' => 0]);

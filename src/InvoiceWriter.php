@@ -839,9 +839,11 @@ class InvoiceWriter
      */
     protected function trialDays(Payment $payment): int
     {
-        $days = $this->product($payment->product)['trial_days'] ?? 0;
+        // Gelesen wie in statamic-payments (`max(0, (int) ...)`): ein Wert aus
+        // .env oder YAML kommt als Text, und Payments nimmt ihn an.
+        $days = max(0, (int) ($this->product($payment->product)['trial_days'] ?? 0));
 
-        if (! is_int($days) || $days < 1) {
+        if ($days < 1) {
             return 0;
         }
 
@@ -854,9 +856,15 @@ class InvoiceWriter
         try {
             $earlier = Payment::query()
                 ->where('subscription_id', $subscriptionId)
+                ->where('status', Payment::STATUS_PAID)
                 ->where($payment->getKeyName(), '<', $payment->getKey())
                 ->exists();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            Log::warning('invoices: could not tell whether a payment is the first of its subscription', [
+                'payment' => $payment->getKey(),
+                'exception' => $e->getMessage(),
+            ]);
+
             return 0;
         }
 
