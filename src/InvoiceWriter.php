@@ -810,6 +810,17 @@ class InvoiceWriter
         }
 
         $from = DisplayTime::of($issuedAt)->startOfDay();
+
+        // Die Zahlung beim Abschluss eines Abos mit Testphase gehoert zur
+        // Testphase, nicht zum ersten Takt: dessen Zeitraum beginnt erst mit
+        // ihrem Ende. Die Rechnung des ersten bezahlten Takts wird an dessen
+        // erstem Tag ausgestellt und nennt ihn deshalb ohne Sonderfall.
+        $trialDays = $this->trialDays($payment);
+
+        if ($trialDays > 0) {
+            return ['from' => $from->toDateString(), 'to' => $from->copy()->addDays($trialDays - 1)->toDateString()];
+        }
+
         $next = DisplayTime::addInterval($from, $interval);
 
         if ($next === null || $next->lessThanOrEqualTo($from)) {
@@ -817,6 +828,39 @@ class InvoiceWriter
         }
 
         return ['from' => $from->toDateString(), 'to' => $next->copy()->subDay()->toDateString()];
+    }
+
+    /**
+     * Die Tage der Testphase, wenn diese Zahlung die beim Abschluss ist, sonst 0.
+     *
+     * Beim Abschluss: die erste Zahlung ihres Abos (oder eine, die noch an
+     * keinem haengt). Jeder spaetere Zyklus hat eine fruehere Zahlung am selben
+     * Abo und faellt nicht darunter.
+     */
+    protected function trialDays(Payment $payment): int
+    {
+        $days = $this->product($payment->product)['trial_days'] ?? 0;
+
+        if (! is_int($days) || $days < 1) {
+            return 0;
+        }
+
+        $subscriptionId = $payment->getAttribute('subscription_id');
+
+        if ($subscriptionId === null) {
+            return $days;
+        }
+
+        try {
+            $earlier = Payment::query()
+                ->where('subscription_id', $subscriptionId)
+                ->where($payment->getKeyName(), '<', $payment->getKey())
+                ->exists();
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        return $earlier ? 0 : $days;
     }
 
     protected function product(?string $handle): array
