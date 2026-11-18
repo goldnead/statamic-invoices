@@ -56,6 +56,7 @@ class RetryInvoices extends Command
             ->filter(fn (DeliveryRecord $row) => $row->invoice !== null && $row->isDueForRetry());
 
         $sent = 0;
+        $failed = 0;
 
         foreach ($rows as $row) {
             try {
@@ -63,6 +64,8 @@ class RetryInvoices extends Command
                     $sent++;
                 }
             } catch (Throwable $e) {
+                $failed++;
+
                 // The delivery has counted the attempt (and logs the final one at
                 // error); the cause is kept on the row. Here it is only said that
                 // a retry ran, with the number and nothing else about the buyer.
@@ -78,6 +81,8 @@ class RetryInvoices extends Command
             $this->components->info("{$sent} of {$rows->count()} sent.");
         }
 
-        return self::SUCCESS;
+        // A run in which retries threw must not end green: a monitor that reads
+        // the exit code is the only thing that notices a mail server that is down.
+        return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

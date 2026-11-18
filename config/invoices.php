@@ -179,6 +179,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Paid without an invoice
+    |--------------------------------------------------------------------------
+    |
+    | `schedule` true: `invoices:pending` runs daily on the host's scheduler
+    | (counting only, it never writes) and logs `Log::error` when a paid payment
+    | has no invoice. Off by default; the host must run `schedule:run`.
+    |
+    */
+
+    'pending' => [
+        'schedule' => env('INVOICES_PENDING_SCHEDULE', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Webhook Manager
     |--------------------------------------------------------------------------
     |
