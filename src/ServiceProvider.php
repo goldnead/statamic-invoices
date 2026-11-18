@@ -137,6 +137,12 @@ class ServiceProvider extends AddonServiceProvider
      */
     protected function schedule(Schedule $schedule): void
     {
+        // Paid but no invoice: counted daily, never written (no `--write`), and
+        // reported with `Log::error`. Off by default; `pending.schedule`.
+        if (config('invoices.pending.schedule', false)) {
+            $schedule->command('invoices:pending')->dailyAt('06:30')->withoutOverlapping();
+        }
+
         if (! config('invoices.delivery.retry.schedule', true)) {
             return;
         }

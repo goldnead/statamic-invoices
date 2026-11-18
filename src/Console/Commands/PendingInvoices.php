@@ -122,6 +122,13 @@ class PendingInvoices extends Command
             }
         }
 
+        if ($offen !== []) {
+            // Der Cron wirft die Tabelle weg, das Log nicht.
+            Log::error('invoices:pending: '.count($offen).' bezahlte Zahlungen ohne Rechnung.', [
+                'payment_ids' => array_column($offen, 0),
+            ]);
+        }
+
         if ($geschrieben > 0) {
             $this->components->info($geschrieben.' Rechnungen geschrieben.');
         }

@@ -142,6 +142,21 @@ class InvoiceDelivery
         if ($to === '') {
             $this->noteFailedAttempt($previous, 'no buyer address');
 
+            // No row yet: the invoice would otherwise be missing from every
+            // list. A held row puts it on `invoices:held`; `invoices:release`
+            // sends it once somebody has the address.
+            if ($previous === null) {
+                try {
+                    DeliveryRecord::create([
+                        'invoice_id' => $invoice->getKey(),
+                        'status' => DeliveryRecord::STATUS_HELD,
+                        'reason' => 'no buyer address',
+                    ]);
+                } catch (UniqueConstraintViolationException) {
+                    // A concurrent attempt wrote its own row; that one is the answer.
+                }
+            }
+
             // A paid order with no address. `statamic-payments` already says so
             // at fulfilment; repeating it here is what tells an operator that
             // this particular invoice is sitting in the database undelivered.
@@ -230,16 +245,45 @@ class InvoiceDelivery
             return $this->refused($invoice, $brandId);
         }
 
-        $claim->update([
-            'status' => DeliveryRecord::STATUS_SENT,
-            'subject' => mb_substr((string) $mail->subject, 0, 255) ?: null,
-        ]);
+        $this->markSent($invoice, $claim, mb_substr((string) $mail->subject, 0, 255) ?: null);
 
         InvoiceDelivered::dispatch($invoice, $to);
 
         $this->logOnPayment($invoice, $to, $mail->subject);
 
         return true;
+    }
+
+    /**
+     * The mail is out; the row must say so. A failing update here must not
+     * undo that: the buyer has the invoice, and a row left in `sending` would
+     * be released by hand a few minutes later and mailed a second time. So the
+     * update is tried again past the model, and only when that fails too it is
+     * said loudly, and the send still counts.
+     */
+    protected function markSent(Invoice $invoice, DeliveryRecord $claim, ?string $subject): void
+    {
+        try {
+            $claim->update(['status' => DeliveryRecord::STATUS_SENT, 'subject' => $subject]);
+
+            return;
+        } catch (Throwable $first) {
+            try {
+                DeliveryRecord::query()->whereKey($claim->getKey())->toBase()->update([
+                    'status' => DeliveryRecord::STATUS_SENT,
+                    'subject' => $subject,
+                    'updated_at' => now(),
+                ]);
+
+                return;
+            } catch (Throwable $e) {
+                Log::error('invoices: '.$invoice->number.' was mailed, but its status could not be set to sent; it stays in "sending". Do NOT release it, the buyer has it.', [
+                    'invoice_id' => $invoice->getKey(),
+                    'exception' => $e->getMessage(),
+                    'first_exception' => $first->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**

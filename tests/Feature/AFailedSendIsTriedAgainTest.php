@@ -252,7 +252,7 @@ class AFailedSendIsTriedAgainTest extends TestCase
         $this->scheitern($rechnung);
         $this->altern($rechnung, minuten: 11);
 
-        $this->artisan('invoices:retry')->assertSuccessful();
+        $this->artisan('invoices:retry')->assertFailed();
 
         Log::shouldHaveReceived('warning')->withArgs(fn (string $m, array $ctx = []) => $m === 'invoices: retry failed'
             && $ctx === ['number' => $rechnung->number, 'attempt' => 2])->once();
@@ -306,7 +306,7 @@ class AFailedSendIsTriedAgainTest extends TestCase
         $this->altern($rechnung, minuten: 11);
 
         // Zweiter Versuch scheitert ebenfalls: attempts = 2, Abstand nun 20 Minuten.
-        $this->artisan('invoices:retry')->assertSuccessful();
+        $this->artisan('invoices:retry')->assertFailed();
         $this->assertSame(2, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('attempts'));
 
         $this->altern($rechnung, minuten: 15);
@@ -328,7 +328,7 @@ class AFailedSendIsTriedAgainTest extends TestCase
 
         foreach ([2, 3] as $versuch) {
             $this->altern($rechnung, minuten: 200);
-            $this->artisan('invoices:retry')->assertSuccessful();
+            $this->artisan('invoices:retry')->assertFailed();
             $this->assertSame($versuch, (int) DeliveryRecord::query()->where('invoice_id', $rechnung->id)->value('attempts'));
         }
 
