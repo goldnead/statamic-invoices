@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.9.0 — 2026-11-18
+
+### Added
+
+- `pending.schedule` (default `false`, env `INVOICES_PENDING_SCHEDULE`): when on, `invoices:pending` runs daily at 06:30 on the host's scheduler (counting only, it never writes) and logs `Log::error` when a paid payment has no invoice. The host must run `schedule:run`.
+
+### Changed
+
+- An invoice with no buyer address now gets a delivery row in status `held` (reason `no buyer address`), so it shows up on `invoices:held` and `invoices:release` can send it once somebody has the address. Before it was missing from every list.
+- `invoices:retry` ends with a failure exit code when a retry threw, so a monitor reading the exit code notices a mail server that is down.
+
+### Fixed
+
+- A mailed invoice stays `sent` when the status update fails: the update is tried again past the model, and only if that fails too it is logged loudly (the row stays in `sending`; do not release it, the buyer has it).
+
+### Upgrading
+
+- No migration. The new config key defaults to off.
+
 ## 2.8.2 — 2026-11-17
 
 ### Fixed
