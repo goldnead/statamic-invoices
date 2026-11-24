@@ -2,6 +2,7 @@
 
 namespace Goldnead\Invoices\Tests\Feature;
 
+use Goldnead\Invoices\Events\CreditNoteIssued;
 use Goldnead\Invoices\Events\InvoiceIssued;
 use Goldnead\Invoices\InvoiceWriter;
 use Goldnead\Invoices\Listeners\WriteCreditNoteOnRefund;
@@ -96,6 +97,30 @@ class NachtlaufStilleFehlerTest extends TestCase
         });
 
         $this->assertCount(1, $gesehen);
+    }
+
+    #[Test]
+    public function the_credit_note_event_waits_for_an_outer_commit_and_never_fires_after_a_rollback(): void
+    {
+        $gesehen = 0;
+        Event::listen(CreditNoteIssued::class, function () use (&$gesehen) {
+            $gesehen++;
+        });
+        $zahlung = $this->bezahlt();
+        app(InvoiceWriter::class)->forPayment($zahlung);
+
+        try {
+            DB::transaction(function () use ($zahlung, &$gesehen) {
+                app(InvoiceWriter::class)->creditNoteFor($zahlung->fresh());
+                $this->assertSame(0, $gesehen, 'Das Ereignis darf nicht innerhalb der äußeren Transaktion feuern.');
+
+                throw new RuntimeException('äußere Transaktion rollt zurück');
+            });
+        } catch (RuntimeException) {
+        }
+
+        $this->assertSame(0, $gesehen);
+        $this->assertSame(1, Invoice::count());
     }
 
     // ── I5: Teilerstattung und fehlendes Original sind im Log zu sehen ───────

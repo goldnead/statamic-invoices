@@ -30,6 +30,7 @@ class WriteCreditNoteOnRefund
             Log::info('invoices: partial refund, no credit note written', [
                 'payment_id' => $event->payment->getKey(),
                 'refunded_cent' => $event->amountCent,
+                'currency' => $event->payment->currency,
             ]);
 
             return;
