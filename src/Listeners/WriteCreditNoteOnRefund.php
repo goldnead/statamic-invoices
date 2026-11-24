@@ -21,7 +21,17 @@ class WriteCreditNoteOnRefund
 
     public function handle(PaymentRefunded $event): void
     {
-        if (! $event->isFull || ! config('invoices.auto_issue', true)) {
+        if (! config('invoices.auto_issue', true)) {
+            return;
+        }
+
+        if (! $event->isFull) {
+            // Which lines came back is a person's decision; the log is how that person hears of it.
+            Log::info('invoices: partial refund, no credit note written', [
+                'payment_id' => $event->payment->getKey(),
+                'refunded_cent' => $event->amountCent,
+            ]);
+
             return;
         }
 

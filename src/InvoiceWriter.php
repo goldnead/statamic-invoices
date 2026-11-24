@@ -258,6 +258,10 @@ class InvoiceWriter
             ->first();
 
         if ($original === null) {
+            Log::warning('invoices: refund without an original invoice, no credit note written', [
+                'payment_id' => $payment->getKey(),
+            ]);
+
             return null;
         }
 
