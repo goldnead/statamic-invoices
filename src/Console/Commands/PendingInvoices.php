@@ -252,6 +252,8 @@ class PendingInvoices extends Command
      * payment that has an invoice. A partial refund therefore gets no credit note
      * by design and is not in this list. The status stays `paid` after a refund,
      * so it is not checked here.
+     *
+     * @return Collection<int, Payment>
      */
     protected function erstattetOhneGutschrift(?Brand $brand): Collection
     {
