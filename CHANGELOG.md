@@ -6,6 +6,7 @@
 
 - `InvoiceIssued` and `CreditNoteIssued` implement `ShouldDispatchAfterCommit`: a host that calls `InvoiceWriter::forPayment()` inside its own transaction no longer fires the event (mail, webhook, listeners) before that transaction commits, and never after a rollback. Outside a transaction nothing changes.
 - A partial refund now leaves a `Log::info` line (no credit note is written for it, a person decides), and a refund without an original invoice leaves a `Log::warning` instead of returning `null` silently.
+- `invoices:pending` also lists a full refund that has an invoice but no credit note, in its own table "Voll erstattet, ohne Gutschrift". Without `--write` it only counts (exit 0); with `--write` it writes the credit note and exits 1 when one fails. Partial refunds are not listed, since no credit note is written for them. The same case is logged with `Log::error` for a scheduled run.
 
 ## 2.9.0 — 2026-11-18
 

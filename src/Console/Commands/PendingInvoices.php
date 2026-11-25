@@ -12,6 +12,7 @@ use Goldnead\Invoices\InvoiceWriter;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\StatamicPayments\Models\Payment;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -22,11 +23,17 @@ use Illuminate\Support\Facades\Log;
  * could not be written needs a decision about a tax rule. Showing both in one
  * list without saying which is which would hide the second behind the first.
  *
+ * The same holds for the second list: a payment that was refunded in full and
+ * has an invoice but no credit note (I5). It is found by the writer's own rule
+ * (the listener writes a credit note only on a full refund), so a partial refund
+ * is never in it. A refund is not a status change, so such a payment still reads
+ * `paid`; the list therefore asks the refund columns, not the status.
+ *
  * The exit code, for whoever runs this from cron: `0` when there was nothing to
- * complain about, `1` when `--write` left a payment without its invoice, and `1`
- * for an unexpected error on any run, `--write` or not. Every row runs inside
- * its own error boundary, so one bad payment reports itself and the rest are
- * still tried.
+ * complain about, `1` when `--write` left a payment without its invoice or a
+ * refund without its credit note, and `1` for an unexpected error on any run,
+ * `--write` or not. Every row runs inside its own error boundary, so one bad
+ * payment reports itself and the rest are still tried.
  */
 class PendingInvoices extends Command
 {
@@ -58,7 +65,9 @@ class PendingInvoices extends Command
             ->orderBy('id')
             ->get();
 
-        if ($ohne->isEmpty()) {
+        $erstattet = $this->erstattetOhneGutschrift($brand);
+
+        if ($ohne->isEmpty() && $erstattet->isEmpty()) {
             $this->components->info('Jede bezahlte Zahlung hat ihre Rechnung.');
 
             return self::SUCCESS;
@@ -144,6 +153,64 @@ class PendingInvoices extends Command
             );
         }
 
+        // Zweite Liste, eigene Fehlergrenze je Zeile wie oben. Eine Gutschrift
+        // ist nur dort fällig, wo der Listener sie schreibt: bei voller Erstattung.
+        $gutschriftGeschrieben = 0;
+        $gutschriftOffen = [];
+
+        foreach ($erstattet as $zahlung) {
+            try {
+                if (! $this->option('write')) {
+                    $gutschriftOffen[] = [$zahlung->id, $zahlung->product, $zahlung->country ?: '—', '(nicht versucht)'];
+
+                    continue;
+                }
+
+                if ($writer->creditNoteFor($zahlung) !== null) {
+                    $gutschriftGeschrieben++;
+                }
+            } catch (\Throwable $e) {
+                // Dieselbe Trennung wie oben: ein Befund in die Tabelle, ein
+                // Programmfehler ins Log, mit Ausnahme und Klasse.
+                if (! $e instanceof InvoiceNotWritten) {
+                    Log::error('invoices:pending: '.$e->getMessage(), [
+                        'exception' => $e,
+                        'payment_id' => $zahlung->id,
+                    ]);
+
+                    $gescheitert = true;
+                }
+
+                $gutschriftOffen[] = [
+                    $zahlung->id,
+                    $zahlung->product,
+                    $zahlung->country ?: '—',
+                    $this->reason($e),
+                ];
+            }
+        }
+
+        if ($gutschriftOffen !== []) {
+            Log::error('invoices:pending: '.count($gutschriftOffen).' erstattete Zahlungen ohne Gutschrift.', [
+                'payment_ids' => array_column($gutschriftOffen, 0),
+            ]);
+        }
+
+        if ($gutschriftGeschrieben > 0) {
+            $this->components->info($gutschriftGeschrieben.' Gutschriften geschrieben.');
+        }
+
+        if ($gutschriftOffen !== []) {
+            $this->newLine();
+            $this->components->warn('Voll erstattet, ohne Gutschrift:');
+            $this->table(['Zahlung', 'Produkt', 'Land', 'Grund'], $gutschriftOffen);
+            $this->newLine();
+            $this->components->warn(
+                count($gutschriftOffen).' Zahlungen erstattet, ohne Gutschrift. Mit --write wird die '
+                .'Gutschrift nachgeschrieben, wo das geht.'
+            );
+        }
+
         if ($hinweise !== []) {
             $this->newLine();
             $this->components->warn('Steuerhinweise (nicht auf der Rechnung, aber an ihr gespeichert):');
@@ -157,9 +224,31 @@ class PendingInvoices extends Command
         // Zaehlen ohne --write — die Steuerhinweise werden dort naemlich
         // trotzdem geholt, und ein Programmfehler auf diesem Weg darf nicht als
         // gruener Lauf durchgehen.
-        return $gescheitert || ($this->option('write') && $offen !== [])
+        return $gescheitert || ($this->option('write') && ($offen !== [] || $gutschriftOffen !== []))
             ? self::FAILURE
             : self::SUCCESS;
+    }
+
+    /**
+     * Fully refunded payments that have an invoice but no credit note.
+     *
+     * The rule is the writer's, not a new one: the listener writes a credit note
+     * only when the refund is full (`isFull` is `refunded_cent >= amount_cent`,
+     * see the payments addon's Refunds), and `creditNoteFor()` reverses only a
+     * payment that has an invoice. A partial refund therefore gets no credit note
+     * by design and is not in this list. The status stays `paid` after a refund,
+     * so it is not checked here.
+     */
+    protected function erstattetOhneGutschrift(?Brand $brand): Collection
+    {
+        return $this->forBrand(Payment::query(), $brand)
+            ->where('refunded_cent', '>', 0)
+            ->whereColumn('refunded_cent', '>=', 'amount_cent')
+            ->whereIn('id', Invoice::query()->where('kind', Invoice::KIND_INVOICE)->whereNotNull('payment_id')->pluck('payment_id'))
+            ->whereNotIn('id', Invoice::query()->where('kind', Invoice::KIND_CREDIT_NOTE)->whereNotNull('payment_id')->pluck('payment_id'))
+            ->with('items')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
