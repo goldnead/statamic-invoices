@@ -3,6 +3,7 @@
 namespace Goldnead\Invoices\Events;
 
 use Goldnead\Invoices\Models\Invoice;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -10,8 +11,11 @@ use Illuminate\Foundation\Events\Dispatchable;
  *
  * Carries both, because a credit note read on its own says nothing about what
  * it undid.
+ *
+ * Like `InvoiceIssued`, held back until a host's outer transaction commits and never
+ * fired after its rollback.
  */
-class CreditNoteIssued
+class CreditNoteIssued implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
 
