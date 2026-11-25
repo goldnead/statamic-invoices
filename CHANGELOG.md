@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `invoices:held` exits with 1 when a delivery is held, stuck in `sending` or `failed_final` (a person has to act), so a cron or monitor sees it; a list of only `failed` rows (still being retried by `invoices:retry`) exits 0. Before it always exited 0.
 - `InvoiceIssued` and `CreditNoteIssued` implement `ShouldDispatchAfterCommit`: a host that calls `InvoiceWriter::forPayment()` inside its own transaction no longer fires the event (mail, webhook, listeners) before that transaction commits, and never after a rollback. Outside a transaction nothing changes.
 - A partial refund now leaves a `Log::info` line (no credit note is written for it, a person decides), and a refund without an original invoice leaves a `Log::warning` instead of returning `null` silently.
 

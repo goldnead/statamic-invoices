@@ -54,6 +54,11 @@ class HeldInvoices extends Command
 
         $this->line('Send one as it is: php artisan invoices:release <number>');
 
-        return self::SUCCESS;
+        // Something is waiting for a person: a failing exit code, so a cron or
+        // a monitor sees it without anyone reading the table. A row that is only
+        // `failed` is not: `invoices:retry` tries it again by itself.
+        return $rows->contains(fn (DeliveryRecord $row): bool => $row->status !== DeliveryRecord::STATUS_FAILED)
+            ? self::FAILURE
+            : self::SUCCESS;
     }
 }
