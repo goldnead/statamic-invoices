@@ -3,6 +3,7 @@
 namespace Goldnead\Invoices\Tests\Feature;
 
 use Goldnead\Invoices\Console\Commands\PendingInvoices;
+use Goldnead\Invoices\Exceptions\InvoiceNotWritten;
 use Goldnead\Invoices\InvoiceWriter;
 use Goldnead\Invoices\Models\Invoice;
 use Goldnead\Invoices\Tests\TestCase;
@@ -113,6 +114,70 @@ class PendingRefundedWithoutCreditNoteTest extends TestCase
         $this->assertSame(0, $code);
         $this->assertStringNotContainsString('erstattet, ohne Gutschrift', Artisan::output());
         $this->assertSame(1, $this->gutschriften());
+    }
+
+    #[Test]
+    public function only_the_full_refund_with_an_invoice_is_listed_among_several_payments(): void
+    {
+        $voll = $this->erstattet(11900, 'tr_voll');
+        $teil = $this->erstattet(5000, 'tr_teil');
+        $ohneRechnung = Payment::create([
+            'provider' => 'fake', 'provider_id' => 'tr_ohne', 'product' => 'kurs',
+            'amount_cent' => 11900, 'currency' => 'EUR', 'status' => Payment::STATUS_PAID,
+            'email' => 'x@example.com', 'name' => 'X', 'country' => 'DE', 'paid_at' => now(),
+            'refunded_cent' => 11900, 'refunded_at' => now(),
+        ]);
+
+        Artisan::call('invoices:pending');
+        $ausgabe = Artisan::output();
+        $teile = explode('Voll erstattet, ohne Gutschrift:', $ausgabe);
+
+        $this->assertCount(2, $teile, $ausgabe);
+        $this->assertStringContainsString('| '.$voll->id.' ', $teile[1]);
+        $this->assertStringNotContainsString('| '.$teil->id.' ', $teile[1]);
+        $this->assertStringNotContainsString('| '.$ohneRechnung->id.' ', $teile[1]);
+        $this->assertStringContainsString('1 Zahlungen erstattet, ohne Gutschrift', $ausgabe);
+    }
+
+    #[Test]
+    public function a_credit_note_writer_that_returns_null_is_not_reported_as_written(): void
+    {
+        Log::spy();
+        $zahlung = $this->erstattet(11900);
+
+        $this->mock(InvoiceWriter::class, function ($mock) {
+            $mock->shouldReceive('taxNotesFor')->andReturn([]);
+            $mock->shouldReceive('creditNoteFor')->andReturn(null);
+        });
+
+        $code = Artisan::call('invoices:pending', ['--write' => true]);
+        $ausgabe = Artisan::output();
+
+        $this->assertSame(1, $code, $ausgabe);
+        $this->assertStringNotContainsString('Gutschriften geschrieben', $ausgabe);
+        $this->assertStringContainsString('| '.$zahlung->id.' ', $ausgabe);
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn ($m, $c = []) => ($c['payment_id'] ?? null) === $zahlung->id)
+            ->once();
+    }
+
+    #[Test]
+    public function a_finding_without_a_program_error_gives_exit_1_and_the_reason_but_no_per_row_log(): void
+    {
+        Log::spy();
+        $zahlung = $this->erstattet(11900);
+
+        $this->mock(InvoiceWriter::class, function ($mock) {
+            $mock->shouldReceive('taxNotesFor')->andReturn([]);
+            $mock->shouldReceive('creditNoteFor')->andThrow(new class('Steuersatz offen') extends InvoiceNotWritten {});
+        });
+
+        $code = Artisan::call('invoices:pending', ['--write' => true]);
+        $ausgabe = Artisan::output();
+
+        $this->assertSame(1, $code, $ausgabe);
+        $this->assertStringContainsString('| '.$zahlung->id.' ', $ausgabe);
+        Log::shouldNotHaveReceived('error', [\Mockery::on(fn ($m) => is_string($m) && str_contains($m, 'Steuersatz offen')), \Mockery::any()]);
     }
 
     #[Test]

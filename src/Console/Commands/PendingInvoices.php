@@ -168,6 +168,20 @@ class PendingInvoices extends Command
 
                 if ($writer->creditNoteFor($zahlung) !== null) {
                     $gutschriftGeschrieben++;
+                } else {
+                    // `null`: keine Originalrechnung oder die Gutschrift gibt es
+                    // inzwischen. Nicht still: die Zeile bleibt in der Liste und
+                    // der Lauf endet mit 1, statt "geschrieben" vorzutäuschen.
+                    Log::warning('invoices:pending: creditNoteFor lieferte null für eine voll erstattete Zahlung.', [
+                        'payment_id' => $zahlung->id,
+                    ]);
+
+                    $gutschriftOffen[] = [
+                        $zahlung->id,
+                        $zahlung->product,
+                        $zahlung->country ?: '—',
+                        'keine Gutschrift geschrieben (Original fehlt oder Gutschrift schon vorhanden)',
+                    ];
                 }
             } catch (\Throwable $e) {
                 // Dieselbe Trennung wie oben: ein Befund in die Tabelle, ein
