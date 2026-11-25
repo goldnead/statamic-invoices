@@ -111,12 +111,29 @@ class SilentFailuresAreVisibleTest extends TestCase
         $this->assertSame(DeliveryRecord::STATUS_HELD, $zeile->status);
         $this->assertSame('no buyer address', $zeile->reason);
 
-        $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertSuccessful();
+        $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertFailed();
 
         // Ein zweiter Versuch legt keine zweite Zeile an und wirft nicht.
         $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
         $this->assertSame(1, DeliveryRecord::query()->where('invoice_id', $rechnung->id)->count());
         $this->assertSame(0, $this->gesendet());
+    }
+
+    #[Test]
+    public function held_list_fails_when_an_invoice_is_held_sending_failed_or_failed_final(): void
+    {
+        foreach ([DeliveryRecord::STATUS_HELD, DeliveryRecord::STATUS_SENDING, DeliveryRecord::STATUS_FAILED, DeliveryRecord::STATUS_FAILED_FINAL] as $status) {
+            $rechnung = $this->rechnung();
+            DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => $status, 'attempts' => 1]);
+
+            $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertFailed();
+        }
+    }
+
+    #[Test]
+    public function held_list_stays_green_when_nothing_is_held(): void
+    {
+        $this->artisan('invoices:held')->expectsOutputToContain('No invoice is held back.')->assertSuccessful();
     }
 
     // ── I3: Retry endet nicht mehr grün ──────────────────────────────────────

@@ -342,7 +342,7 @@ class AFailedSendIsTriedAgainTest extends TestCase
         $this->artisan('invoices:retry')->assertSuccessful();
         $this->assertSame(0, $this->gesendet());
 
-        $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertSuccessful();
+        $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertFailed();
 
         // Von Hand geht es weiter.
         $this->artisan('invoices:release', ['number' => $rechnung->number])->assertSuccessful();

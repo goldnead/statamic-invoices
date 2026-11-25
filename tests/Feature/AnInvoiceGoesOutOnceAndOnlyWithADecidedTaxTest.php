@@ -304,7 +304,7 @@ class AnInvoiceGoesOutOnceAndOnlyWithADecidedTaxTest extends TestCase
 
         $this->artisan('invoices:held')
             ->expectsOutputToContain($rechnung->number)
-            ->assertSuccessful();
+            ->assertFailed();
 
         $this->artisan('invoices:release', ['number' => $rechnung->number])->assertSuccessful();
 

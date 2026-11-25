@@ -54,6 +54,8 @@ class HeldInvoices extends Command
 
         $this->line('Send one as it is: php artisan invoices:release <number>');
 
-        return self::SUCCESS;
+        // Something is waiting for a person: a failing exit code, so a cron or
+        // a monitor sees it without anyone reading the table.
+        return self::FAILURE;
     }
 }
