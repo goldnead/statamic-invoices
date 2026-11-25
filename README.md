@@ -107,6 +107,11 @@ On a **full** refund, `statamic-payments` 1.10 fires `PaymentRefunded` and the c
 by itself. A partial refund is not: which lines came back is a question only a person can answer, and
 guessing it would put a wrong figure on a tax document.
 
+A full refund that has an invoice but no credit note, for whatever reason, is listed by
+`php artisan invoices:pending` in its own table, "Voll erstattet, ohne Gutschrift". Without `--write`
+the command only lists it (exit 0); with `--write` it writes the credit note, and exits 1 if one
+cannot be written. A partial refund is never in that list.
+
 ## Events
 
 | Event | When |
