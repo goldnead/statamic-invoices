@@ -77,5 +77,18 @@ class SecondDeliveryWinnerTest extends TestCase
         $this->assertNotNull($antwort);
         $this->assertSame($gewinner->getKey(), $antwort->getKey(), 'Die Antwort ist die Rechnung des Gewinners.');
         $this->assertSame(1, Invoice::query()->where('payment_id', $zahlung->getKey())->where('kind', Invoice::KIND_INVOICE)->count());
+
+        // Der Verlierer hat keine Nummer verbrannt: die nächste Rechnung ist die
+        // Nummer nach der des Gewinners, ohne Lücke.
+        $naechste = Payment::create([
+            'provider' => 'fake', 'provider_id' => 'tr_danach', 'product' => 'kurs',
+            'amount_cent' => 11900, 'currency' => 'EUR', 'status' => Payment::STATUS_PAID,
+            'email' => 'wer@example.com', 'name' => 'Bärbel Öztürk-Weiß',
+            'country' => 'DE', 'paid_at' => Carbon::parse('2026-08-10 11:00'),
+        ]);
+        $folge = app(InvoiceWriter::class)->forPayment($naechste);
+
+        $this->assertSame('RE2026-08-001', $gewinner->number);
+        $this->assertSame('RE2026-08-002', $folge->number);
     }
 }

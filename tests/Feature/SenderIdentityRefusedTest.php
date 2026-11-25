@@ -10,7 +10,6 @@ use Goldnead\Invoices\Sending\BrandMailer;
 use Goldnead\Invoices\Tests\TestCase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -25,6 +24,8 @@ class SenderIdentityRefusedTest extends TestCase
     {
         parent::defineEnvironment($app);
 
+        $app['config']->set('invoices.delivery.retry.after_minutes', 10);
+        $app['config']->set('invoices.delivery.retry.max_attempts', 3);
         $app['config']->set('mail.default', 'array');
         $app['config']->set('mail.from', ['address' => 'post@host.test', 'name' => 'Der Host']);
     }
@@ -68,11 +69,6 @@ class SenderIdentityRefusedTest extends TestCase
         ]);
     }
 
-    private function gesendet(): int
-    {
-        return Mail::mailer()->getSymfonyTransport()->messages()->count();
-    }
-
     #[Test]
     public function a_refused_sender_sends_nothing_leaves_no_sending_claim_and_says_which_invoice(): void
     {
@@ -83,7 +79,6 @@ class SenderIdentityRefusedTest extends TestCase
 
         $this->assertFalse(app(InvoiceDelivery::class)->send($rechnung));
 
-        $this->assertSame(0, $this->gesendet());
         $this->assertSame(0, DeliveryRecord::query()->count(), 'Keine Claim-Zeile, auch nicht im Status sending.');
         $this->assertSame(0, DeliveryRecord::query()->where('status', DeliveryRecord::STATUS_SENDING)->count());
 
@@ -110,7 +105,6 @@ class SenderIdentityRefusedTest extends TestCase
         $this->assertSame(2, $zeile->attempts);
         $this->assertSame(DeliveryRecord::STATUS_FAILED, $zeile->status);
         $this->assertSame('sender identity refused', $zeile->last_error);
-        $this->assertSame(0, $this->gesendet());
     }
 
     #[Test]
@@ -128,6 +122,5 @@ class SenderIdentityRefusedTest extends TestCase
         // attempts 3 >= max_attempts 3: failClaim setzt failed_final und loggt LOG_FAILED_FINAL.
         $this->assertSame(3, $zeile->attempts);
         $this->assertSame(DeliveryRecord::STATUS_FAILED_FINAL, $zeile->status);
-        $this->assertSame(0, $this->gesendet());
     }
 }

@@ -153,6 +153,7 @@ class InclusiveTaxWithDiscountTest extends TestCase
         $rechnung = app(InvoiceWriter::class)->forPayment($zahlung);
 
         $this->assertSame(0, $rechnung->gross_cent);
+        $this->assertCount(1, $rechnung->items, 'Die Schleife unten darf nicht leer laufen.');
 
         foreach ($rechnung->items as $zeile) {
             $this->assertGreaterThanOrEqual(0, $zeile->gross_cent, 'Brutto einer Zeile ist negativ');
