@@ -120,9 +120,18 @@ class SilentFailuresAreVisibleTest extends TestCase
     }
 
     #[Test]
-    public function held_list_fails_when_an_invoice_is_held_sending_failed_or_failed_final(): void
+    public function held_list_stays_green_when_only_a_row_waits_for_the_automatic_retry(): void
     {
-        foreach ([DeliveryRecord::STATUS_HELD, DeliveryRecord::STATUS_SENDING, DeliveryRecord::STATUS_FAILED, DeliveryRecord::STATUS_FAILED_FINAL] as $status) {
+        $rechnung = $this->rechnung();
+        DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => DeliveryRecord::STATUS_FAILED, 'attempts' => 1]);
+
+        $this->artisan('invoices:held')->expectsOutputToContain($rechnung->number)->assertSuccessful();
+    }
+
+    #[Test]
+    public function held_list_fails_when_an_invoice_is_held_sending_or_failed_final(): void
+    {
+        foreach ([DeliveryRecord::STATUS_HELD, DeliveryRecord::STATUS_SENDING, DeliveryRecord::STATUS_FAILED_FINAL] as $status) {
             $rechnung = $this->rechnung();
             DeliveryRecord::create(['invoice_id' => $rechnung->id, 'status' => $status, 'attempts' => 1]);
 

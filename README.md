@@ -221,7 +221,7 @@ nobody can tell whether the first one arrived. The same holds for a mail server 
 message and then timed out before it answered: the attempt counts as failed, its claim is
 released, and the next attempt sends a second copy. That is the one case where a buyer can get the
 invoice twice; it is preferred over the opposite failure, a buyer who never gets it.
-`php artisan invoices:held` lists invoices stuck in `sending` together with the held ones.
+`php artisan invoices:held` lists invoices stuck in `sending` together with the held ones. It exits with 1 while a row waits for a person (held, `sending`, `failed_final`); rows that are only `failed` are retried by `invoices:retry` and keep the exit code at 0.
 
 ### A failed send is tried again
 
